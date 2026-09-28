@@ -1,0 +1,22 @@
+# Registry record for the Focus Board extension pack.
+# The author's source of truth lives at repository; this record only tracks
+# which release the catalog currently points at. Registered once by the author;
+# updated thereafter by automation (see .github/workflows).
+id = "com.personalteam.FocusBoard"
+name = "Focus Board"
+version = "1.0.0"
+description = "A small session board for deep work, living in the notch."
+publisher = "TheBoredTeam"
+repository = "https://github.com/TheBoredTeam/boring-notch-extensions"
+license = "MIT"
+
+[release]
+url = "https://github.com/TheBoredTeam/boring-notch-extensions/releases/download/packs-v1.0.0/FocusBoard.zip"
+sha256 = "cf1d317508f69e1c3f625b59ea0028fcfa4148e42c4962759871a5c36f67db28"   # frozen at merge time by CI
+
+[update]
+strategy = "github-release"
+
+[[extensions]]
+bundleID = "com.personalteam.FocusBoard.ExampleExtension"
+scenes = ["boringnotch.ui"]

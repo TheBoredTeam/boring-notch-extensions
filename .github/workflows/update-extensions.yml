@@ -1,0 +1,176 @@
+# Homebrew-style release discovery — the automation that makes "register once"
+# true. For every registry record with update.strategy = "github-release", watch
+# the author's repository for new releases; when one is newer than what the
+# catalog lists, file an update PR that bumps version, release url, and sha256.
+#
+# Runs on a schedule and on demand. A human (or branch protection requiring
+# review) is the merger; validate.yml guards whatever this bot proposes.
+name: Update extensions
+
+on:
+  schedule:
+    - cron: "0 */6 * * *" # every 6 hours
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  discover-releases:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Discover new releases and file update PRs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: python
+        run: |
+          import glob, hashlib, json, os, subprocess, sys, urllib.request
+
+          def api(url):
+              req = urllib.request.Request(url, headers={
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Accept": "application/vnd.github+json",
+              })
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  return json.load(resp)
+
+          def parse_toml(text):
+              # Same registry-subset parser as validate.yml, so both sides of
+              # the automation agree on the schema.
+              table, arrays = {}, {}
+              section, array = None, None
+              for raw in text.splitlines():
+                  line = raw.strip()
+                  if not line or line.startswith("#"):
+                      continue
+                  if line.startswith("[["):
+                      key = line[2:-2]
+                      arrays.setdefault(key, []).append({})
+                      array, section = (key, len(arrays[key]) - 1), None
+                      continue
+                  if line.startswith("["):
+                      section, array = line[1:-1], None
+                      continue
+                  if "=" not in line:
+                      continue
+                  key, _, rest = line.partition("=")
+                  key, value = key.strip(), rest.strip()
+                  # Strip an out-of-quote comment, then unquote. Comment
+                  # stripping must respect quotes.
+                  if value.startswith('"'):
+                      end = value.find('"', 1)
+                      if end != -1:
+                          value = value[1:end]
+                  elif "#" in value:
+                      value = value[: value.index("#")].strip()
+                  if array:
+                      arrays[array[0]][array[1]][key] = value
+                  elif section:
+                      table[f"{section}.{key}"] = value
+                  else:
+                      table[key] = value
+              return table, arrays
+
+          def version_key(v):
+              # Numeric-aware ordering: 1.10.0 > 1.9.0.
+              return [int(p) if p.isdigit() else p for p in v.lstrip("v").split(".")]
+
+          def sha256_of(url):
+              with urllib.request.urlopen(url, timeout=300) as resp:
+                  return hashlib.sha256(resp.read()).hexdigest()
+
+          def run(*args):
+              return subprocess.run(args, check=True, capture_output=True, text=True).stdout.strip()
+
+          updated = 0
+          for path in sorted(glob.glob("extensions/*.toml")):
+              record = open(path, encoding="utf-8").read()
+              table, _ = parse_toml(record)
+
+              if table.get("update.strategy") != "github-release":
+                  continue
+              repo = table.get("repository", "")
+              current = table.get("version", "0.0.0")
+              pack_id = table.get("id", path)
+
+              if not repo.startswith("https://github.com/"):
+                  print(f"::warning::{pack_id}: repository is not GitHub; skipping")
+                  continue
+              slug = repo.removeprefix("https://github.com/").removesuffix(".git")
+
+              try:
+                  releases = api(f"https://api.github.com/repos/{slug}/releases")
+              except Exception as e:
+                  print(f"::warning::{pack_id}: could not list releases: {e}")
+                  continue
+
+              # Prefer tagged, non-draft, non-prerelease entries.
+              candidates = [r for r in releases if r.get("tag_name") and not r["draft"] and not r["prerelease"]]
+              if not candidates:
+                  continue
+              latest = max(candidates, key=lambda r: version_key(r["tag_name"]))
+              tag = latest["tag_name"]
+              if version_key(tag) <= version_key(current):
+                  print(f"{pack_id}: up to date at {current}")
+                  continue
+
+              # The first .zip asset is the package, by convention.
+              assets = [a for a in latest.get("assets", []) if a["name"].endswith(".zip")]
+              if not assets:
+                  print(f"::warning::{pack_id}: release {tag} has no .zip asset")
+                  continue
+              asset = assets[0]
+
+              print(f"{pack_id}: {current} -> {tag} ({asset['name']})")
+              sha = sha256_of(asset["browser_download_url"])
+
+              # One PR per pack, idempotent: skip if a PR for this bump is open.
+              branch = f"update/{pack_id}-{tag}"
+              existing = api(f"https://api.github.com/repos/{slug}/pulls?head=TheBoredTeam:{branch}")
+              # (head filter is against this repo; a 404-free empty list means no PR)
+              try:
+                  me = api("https://api.github.com/repos/" + os.environ["GITHUB_REPOSITORY"])
+              except Exception:
+                  pass
+              open_prs = api(
+                  "https://api.github.com/repos/" + os.environ["GITHUB_REPOSITORY"]
+                  + f"/pulls?state=open&head={os.environ['GITHUB_REPOSITORY'].split('/')[0]}:{branch}"
+              )
+              if open_prs:
+                  print(f"{pack_id}: PR already open for {tag}")
+                  continue
+
+              run("git", "config", "user.name", "extension-update-bot")
+              run("git", "config", "user.email", "actions@users.noreply.github.com")
+              run("git", "checkout", "-b", branch)
+
+              new_record = record
+              new_record = _replace(new_record, "version", tag.lstrip("v"))
+              new_record = _replace(new_record, "url", asset["browser_download_url"], section="release")
+              new_record = _replace(new_record, "sha256", sha, section="release")
+              open(path, "w", encoding="utf-8").write(new_record)
+
+              run("git", "add", path)
+              run("git", "commit", "-m", f"Update {table.get('name', pack_id)} to {tag}")
+              run("git", "push", "-u", "origin", branch)
+              run("gh", "pr", "create",
+                  "--title", f"Update {table.get('name', pack_id)} to {tag}",
+                  "--body",
+                  f"Automated release bump for `{pack_id}`.\n\n"
+                  f"- Release: {tag}\n- Asset: {asset['name']}\n- sha256: `{sha}`\n\n"
+                  "Validation (asset exists, hash matches) runs on this PR.",
+                  "--head", branch)
+              updated += 1
+
+          print(f"filed {updated} update PR(s)")
+
+          def _replace(text, key, value, section=None):
+              # Replace `key = "..."` inside the given section only.
+              pattern = re.compile(
+                  r'(^%s\s*=\s*")[^"]*(")' % re.escape(key) if section is None
+                  else r'(?ms)^(%s\s*=\s*")[^"]*(")' % re.escape(key)
+              )
+              return pattern.sub(rf"\g<1>{value}\g<2>", text, count=1)
