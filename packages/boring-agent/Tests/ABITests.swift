@@ -214,6 +214,21 @@ struct ABITests {
             try expect(regular !== compact, "Every simultaneous mount owns a fresh native controller")
             try render(regular!, size: CGSize(width: 578, height: 132), name: "regular-usage")
             try render(compact!, size: CGSize(width: 336, height: 132), name: "compact-usage")
+            let accountLoads = events("agent.state.loaded").count
+            let accountReport = AgentUsageSnapshot(updatedAt: Date().timeIntervalSince1970, planName: "Max 5x", windows: [
+                AgentQuotaWindow(id: "five-hour", title: "5-hour limit", remainingPercent: 57),
+                AgentQuotaWindow(id: "seven-day", title: "Weekly · all models", remainingPercent: 11),
+                AgentQuotaWindow(id: "fable", title: "Weekly · Fable", remainingPercent: 100, contributesToOverall: false),
+            ])
+            try ClaudeStorage.writeAccountUsage(ClaudeAccountUsageRecord(enabled: true, state: .ready,
+                report: accountReport, accountKey: "synthetic-account", updatedAt: Date().timeIntervalSince1970), directory: directory)
+            try wait("Independent account report reaches the mounted dashboard") { events("agent.state.loaded").count > accountLoads }
+            try render(compact!, size: CGSize(width: 336, height: 132), name: "compact-account-usage")
+            try expect(last("agent.state.loaded")?["sessionCount"] as? Int == 1_000,
+                       "Account publication does not replace session registry")
+            let restorationLoads = events("agent.state.loaded").count
+            try FileManager.default.removeItem(at: directory.appendingPathComponent("account-usage.json"))
+            try wait("Removing account fixture restores status-line source") { events("agent.state.loaded").count > restorationLoads }
             send(event, instance, "agent.test.section:progress")
             try render(regular!, size: CGSize(width: 578, height: 132), name: "regular-1000")
             try render(compact!, size: CGSize(width: 336, height: 132), name: "compact-1000")

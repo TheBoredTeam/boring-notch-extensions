@@ -13,6 +13,20 @@ private func providerColor(_ provider: AgentProviderSnapshot) -> Color {
     return Color(red: color.red, green: color.green, blue: color.blue)
 }
 
+/// Usage may have an independent account connection. A healthy session relay
+/// must not conceal an account failure, or make account access look authorized.
+private func usageConnection(for provider: AgentProviderSnapshot) -> AgentConnection {
+    provider.usageConnection ?? provider.connection
+}
+
+private func canRefreshUsage(_ provider: AgentProviderSnapshot) -> Bool {
+    switch usageConnection(for: provider) {
+    case .connected, .failed: return true
+    case .disconnected: return provider.usageConnection == nil
+    case .unavailable: return false
+    }
+}
+
 /// Resource images are template glyphs. Installed application icons retain
 /// their original colors. Neither case uses a fabricated provider mark.
 @MainActor
@@ -192,7 +206,12 @@ private struct AgentProviderCard: View {
     }
 
     private func footnote(_ provider: AgentProviderSnapshot) -> String {
-        if case .failed = provider.connection { return provider.connection.label }
+        let connection = usageConnection(for: provider)
+        if case .failed = connection { return connection.label }
+        if provider.usageConnection != nil {
+            if case .disconnected = connection { return "Connect usage" }
+            if case .unavailable = connection { return "Unavailable" }
+        }
         guard let usage = provider.usage, let remaining = usage.limitingRemainingPercent else { return "Unavailable" }
         return "\(Int(remaining.rounded()))% left" + (usage.isStale(at: state.now) ? " · stale" : "")
     }
@@ -201,7 +220,7 @@ private struct AgentProviderCard: View {
         guard let percent = provider.usage?.limitingRemainingPercent else {
             return "\(provider.descriptor.title), usage unavailable. \(footnote(provider))."
         }
-        return "\(provider.descriptor.title), \(Int(percent.rounded())) percent remaining in its lowest reported quota. \(footnote(provider))."
+        return "\(provider.descriptor.title), \(Int(percent.rounded())) percent remaining in its lowest overall quota. \(footnote(provider))."
     }
 }
 
@@ -247,14 +266,22 @@ private struct AgentProviderPopover: View {
                                 .lineLimit(1)
                         }
                         Spacer(minLength: 2)
-                        if provider.connection.canConfigure {
-                            Button { state.refresh(providerID: providerID) } label: {
+                        if canRefreshUsage(provider) {
+                            Button { state.refreshUsage(providerID: providerID) } label: {
                                 Image(systemName: "arrow.clockwise").font(.system(size: 12, weight: .medium))
                             }
                             .buttonStyle(.plain)
-                            .help("Refresh \(provider.descriptor.title)")
-                            .accessibilityLabel("Refresh \(provider.descriptor.title) usage")
+                            .disabled(provider.usageIsRefreshing)
+                            .help(provider.usageIsRefreshing ? "Refreshing usage…" : "Refresh \(provider.descriptor.title)")
+                            .accessibilityLabel(provider.usageIsRefreshing ? "Refreshing \(provider.descriptor.title) usage" : "Refresh \(provider.descriptor.title) usage")
                             .accessibilityIdentifier("boring-agent-refresh-\(providerID)")
+                        }
+                        if provider.usageConnection?.isConnected == true {
+                            Menu {
+                                Button("Disconnect usage") { state.disconnectUsage(providerID: providerID) }
+                            } label: { Image(systemName: "ellipsis.circle").font(.system(size: 12)) }
+                            .menuStyle(.borderlessButton).fixedSize().frame(width: 18)
+                            .accessibilityLabel("\(provider.descriptor.title) account options")
                         }
                     }
                     if let usage = provider.usage, !usage.windows.isEmpty {
@@ -266,39 +293,39 @@ private struct AgentProviderPopover: View {
                             }
                         }
                         .frame(height: min(260, CGFloat(usage.windows.count) * 66 - 15))
-                        Text((usage.isStale(at: state.now) ? "Stale snapshot. " : "") + "Bars show used allowance; ring shows the lowest remaining allowance.")
+                        Text((usage.isStale(at: state.now) ? "Stale snapshot. " : "") + "Bars show used allowance; ring shows the lowest overall allowance remaining.")
                             .font(.system(size: 10)).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     } else {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Usage unavailable").font(.system(size: 13, weight: .medium))
-                            if provider.connection.message == nil {
-                                Text("\(provider.descriptor.title) has not supplied subscription usage.")
+                            if usageConnection(for: provider).message == nil {
+                                Text(provider.usageConnection != nil && !usageConnection(for: provider).isConnected
+                                     ? "Connect account usage to see your plan limits."
+                                     : "\(provider.descriptor.title) has not supplied subscription usage.")
                                     .font(.system(size: 11)).foregroundStyle(.secondary)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                         }
                     }
-                    // A cached quota remains useful when observation fails, but
-                    // must not hide the error or imply the relay is healthy.
-                    if let message = provider.connection.message {
+                    // Keep the account source's error alongside its cached
+                    // report. Session command feedback never belongs here.
+                    if let message = usageConnection(for: provider).message {
                         Text(message).font(.system(size: 11)).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                             .accessibilityIdentifier("boring-agent-connection-message-\(providerID)")
                     }
-                    if provider.connection.canConfigure && !provider.connection.isConnected {
+                    if provider.usageConnection != nil {
+                        AgentAccountUsageControls(state: state, providerID: providerID)
+                    } else if provider.connection.canConfigure && !provider.connection.isConnected {
                         HStack(spacing: 8) {
-                            Button(provider.connection.isConnected ? "Change relay folder…" : "Connect relay folder…") {
+                            Button("Connect relay folder…") {
                                 state.connectProvider(providerID)
                             }
                             if provider.setupCommand != nil {
                                 Button("Copy setup") { state.copySetupCommand(providerID: providerID) }
                             }
                         }.controlSize(.small)
-                    }
-                    if let message = provider.message, message != provider.connection.message {
-                        Text(message).font(.system(size: 10)).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 .tint(providerColor(provider))
@@ -311,6 +338,59 @@ private struct AgentProviderPopover: View {
         .disabled(!state.isActive)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("boring-agent-provider-details-\(providerID)")
+    }
+}
+
+/// This block is present only for adapters that explicitly expose an account
+/// source. Placeholder providers never gain a nonfunctional Connect button.
+@MainActor
+private struct AgentAccountUsageControls: View {
+    @ObservedObject var state: AgentDashboardState
+    let providerID: String
+    var showsConnectedControls = false
+
+    var body: some View {
+        if let provider = state.provider(forID: providerID), let connection = provider.usageConnection {
+            VStack(alignment: .leading, spacing: 9) {
+                if connection.canConfigure && !connection.isConnected {
+                    Text(providerID == "claude"
+                         ? "Uses your existing Claude Code sign-in in macOS Keychain to fetch plan limits from Anthropic. BoringAgent never writes Claude credentials."
+                         : "Connect account usage to retrieve plan limits from \(provider.descriptor.title).")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("boring-agent-usage-consent-\(providerID)")
+                    HStack(spacing: 8) {
+                        Button(retryLabel(connection)) { state.connectUsage(providerID: providerID) }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(provider.usageIsRefreshing)
+                            .accessibilityIdentifier("boring-agent-connect-usage-\(providerID)")
+                        if case .failed = connection {
+                            Button("Disconnect usage") { state.disconnectUsage(providerID: providerID) }
+                        }
+                    }
+                    .controlSize(.small)
+                } else if connection.isConnected && showsConnectedControls {
+                    HStack(spacing: 8) {
+                        Button(provider.usageIsRefreshing ? "Refreshing…" : "Refresh usage") {
+                            state.refreshUsage(providerID: providerID)
+                        }
+                        .disabled(provider.usageIsRefreshing)
+                        Button("Disconnect usage") { state.disconnectUsage(providerID: providerID) }
+                    }
+                    .controlSize(.small)
+                } else if case .unavailable = connection,
+                          provider.setupCommand != nil, provider.connection.canConfigure {
+                    Button("Copy relay setup") { state.copySetupCommand(providerID: providerID) }
+                        .controlSize(.small)
+                        .help("Run the copied command in Terminal to update the relay.")
+                }
+            }
+        }
+    }
+
+    private func retryLabel(_ connection: AgentConnection) -> String {
+        if case .failed = connection { return "Retry connection" }
+        return "Connect usage"
     }
 }
 
@@ -685,9 +765,18 @@ private struct AgentProviderSettings: View {
                         AgentProviderLogo(provider: provider, size: 22)
                         Text(provider.descriptor.title).font(.headline)
                         Spacer()
-                        Text(provider.connection.label).font(.caption).foregroundStyle(.secondary)
                     }
-                    if let message = provider.message {
+                    HStack {
+                        Text("Session relay").font(.subheadline.weight(.medium))
+                        Spacer()
+                        Text(provider.connection.label).font(.caption).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("boring-agent-relay-status-\(providerID)")
+                    }
+                    if let message = provider.connection.message {
+                        Text(message).font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if let message = provider.message, message != provider.connection.message {
                         Text(message).font(.caption).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -708,11 +797,26 @@ private struct AgentProviderSettings: View {
                             Button(provider.connection.isConnected ? "Change relay folder…" : "Choose relay folder…") {
                                 state.connectProvider(providerID)
                             }
-                            Button("Refresh") { state.refresh(providerID: providerID) }
+                            Button("Refresh relay") { state.refresh(providerID: providerID) }
+                                .disabled(provider.usageIsRefreshing)
                             if provider.relayDirectory != nil {
-                                Button("Disconnect") { state.disconnectProvider(providerID) }
+                                Button("Disconnect relay") { state.disconnectProvider(providerID) }
                             }
                         }.controlSize(.small)
+                    }
+                    if let connection = provider.usageConnection {
+                        Divider().padding(.vertical, 3)
+                        HStack {
+                            Text("Account usage").font(.subheadline.weight(.medium))
+                            Spacer()
+                            Text(connection.label).font(.caption).foregroundStyle(.secondary)
+                                .accessibilityIdentifier("boring-agent-usage-status-\(providerID)")
+                        }
+                        if let message = connection.message {
+                            Text(message).font(.caption).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        AgentAccountUsageControls(state: state, providerID: providerID, showsConnectedControls: true)
                     }
                 }.padding(5).frame(maxWidth: .infinity, alignment: .leading)
             }

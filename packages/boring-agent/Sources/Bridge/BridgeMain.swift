@@ -49,10 +49,20 @@ struct BridgeMain {
                 print("Claude relay integration removed. Private session data remains in \(directory.path) for your review and deletion.")
             case "serve":
                 let broker = ClaudeFocusBroker(directory: directory, allowUI: !arguments.contains("--no-ui"))
-                if arguments.contains("--once") { try ClaudeStorage.prepare(directory: directory); broker.processPending() }
+                let usage = ClaudeAccountUsageService(directory: directory, allowUI: !arguments.contains("--no-ui"))
+                if arguments.contains("--once") {
+                    try ClaudeStorage.prepare(directory: directory)
+                    broker.processPending()
+                    usage.processPending()
+                    usage.stop()
+                }
                 else {
                     try broker.start()
-                    withExtendedLifetime(broker) { RunLoop.main.run() }
+                    do { try usage.start() }
+                    catch {
+                        FileHandle.standardError.write(Data("Account usage could not start. Session handoff remains available.\n".utf8))
+                    }
+                    withExtendedLifetime((broker, usage)) { RunLoop.main.run() }
                 }
             case "help", "--help", "-h":
                 print("""
@@ -63,7 +73,9 @@ struct BridgeMain {
                   --once --no-ui        Process one broker batch without opening apps (testing)
 
                 Install/uninstall run only when you explicitly invoke them. Prompts and unrelated tool
-                arguments are discarded; transcripts and credentials are never opened. Hooks never reply.
+                arguments are discarded; transcripts are never opened. Hooks never reply. Account usage
+                is separate: only after Connect usage, the broker reads the Claude Code Keychain login
+                and fetches plan limits from Anthropic. It never stores or refreshes your credentials.
                 """)
             default: throw ClaudeStorageError.invalidRecord
             }

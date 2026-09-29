@@ -21,11 +21,17 @@ protocol AgentProviderAdapter: AnyObject {
     func openOriginApp(nativeID: String)
     func copyResumeCommand(nativeID: String)
     func copySetupCommand()
+    func connectUsage()
+    func disconnectUsage()
+    func refreshUsage()
 }
 
 extension AgentProviderAdapter {
     func updateClock(_ now: Date) {}
     func selectSession(nativeID: String) {}
+    func connectUsage() {}
+    func disconnectUsage() {}
+    func refreshUsage() {}
 }
 
 enum AgentProviderDescriptors {
@@ -115,6 +121,10 @@ final class ClaudeAgentProviderAdapter: AgentProviderAdapter {
         }.store(in: &subscriptions)
         backend.$directory.sink { [weak self] _ in self?.schedulePublication() }.store(in: &subscriptions)
         backend.$actionMessage.sink { [weak self] _ in self?.schedulePublication() }.store(in: &subscriptions)
+        backend.$accountUsage.sink { [weak self] _ in self?.schedulePublication() }.store(in: &subscriptions)
+        backend.$accountUsageError.sink { [weak self] _ in self?.schedulePublication() }.store(in: &subscriptions)
+        backend.$accountUsageReadError.sink { [weak self] _ in self?.schedulePublication() }.store(in: &subscriptions)
+        backend.$accountUsageRequestPending.sink { [weak self] _ in self?.schedulePublication() }.store(in: &subscriptions)
         backend.start(managesClock: false)
         publish()
     }
@@ -190,20 +200,51 @@ final class ClaudeAgentProviderAdapter: AgentProviderAdapter {
         case .connecting, .disconnected: connection = .disconnected
         case .failed(let message): connection = .failed(message)
         }
+        let account = backend.accountUsage
+        let usageConnection: AgentConnection?
+        if let error = backend.accountUsageError ?? backend.accountUsageReadError {
+            usageConnection = .failed(error)
+        } else if let account {
+            switch account.state {
+            case .disabled: usageConnection = .disconnected
+            case .loading: usageConnection = account.report == nil ? .disconnected : .connected
+            case .ready: usageConnection = .connected
+            case .failed: usageConnection = .failed(account.message ?? "Account usage is unavailable. Reconnect usage to retry.")
+            }
+        } else if latestActualUsage != nil {
+            usageConnection = nil // Older CLI relays can still supply status-line quotas.
+        } else {
+            usageConnection = .unavailable(backend.directory == nil
+                ? "Connect the Claude session relay in BoringAgent settings first."
+                : "Update the Claude relay with the setup command in BoringAgent settings, then connect account usage.")
+        }
+        // Once account access is enabled, never mix its data with potentially
+        // different CLI session accounts or resurrect it from hook snapshots.
+        let usage = account?.enabled == true ? account?.report : latestActualUsage
         let value = AgentProviderSnapshot(descriptor: descriptor, connection: connection,
-            sessions: projectedSessions, usage: latestActualUsage,
+            sessions: projectedSessions, usage: usage,
             setupCommand: ClaudePluginResources.setupCommand,
             message: backend.actionMessage ?? connection.message,
-            relayDirectory: backend.directory?.path)
+            relayDirectory: backend.directory?.path, usageConnection: usageConnection,
+            usageIsRefreshing: account?.state == .loading || backend.accountUsageRequestPending)
         guard value != snapshot else { return }
         snapshot = value
         onChange?()
     }
 
     func updateClock(_ now: Date) { if isActive { backend.updateClock(now) } }
-    func refresh() { if isActive { backend.refresh() } }
+    func refresh() {
+        guard isActive else { return }
+        backend.refresh()
+    }
     func connect() { if isActive { backend.chooseDirectory() } }
     func disconnect() { if isActive { backend.disconnect() } }
+    func connectUsage() { if isActive { backend.requestAccountUsage(.enable) } }
+    func disconnectUsage() { if isActive { backend.requestAccountUsage(.disable) } }
+    func refreshUsage() {
+        guard isActive, backend.accountUsage?.enabled == true else { return }
+        backend.requestAccountUsage(.refresh)
+    }
     func selectSession(nativeID: String) { if isActive { backend.select(nativeID) } }
 
     func openSession(nativeID: String) {

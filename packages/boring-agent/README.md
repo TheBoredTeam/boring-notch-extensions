@@ -5,7 +5,7 @@ One shared dashboard has **Progress** and **Usage** views, with provider adapter
 that can add agents without duplicating the interface. It ships as a separate
 `.bnplugin` ZIP; no extension source is compiled into Boring Notch.
 
-**0.2.0 is a development preview.** Self-signed or ad-hoc preview artifacts need
+**0.2.1 is a development preview.** Self-signed or ad-hoc preview artifacts need
 a compatible Debug host with explicit development-extension opt-in. They are
 not Apple-notarized production releases and will not install in a Release host
 that requires Developer ID and notarization.
@@ -59,8 +59,9 @@ Claude Desktop's local Code sessions share the CLI's user hooks. A real running
 Desktop session using its embedded Claude Code 2.1.281 was observed loading the
 relay hooks without a restart, reporting activity, and opening its originating
 Desktop app. This does not establish support for Chat, Cowork, cloud, or SSH
-sessions. Desktop did not emit status-line usage during this check, so its quota
-and context values remained unavailable in the extension. Editor integrations
+sessions. Desktop does not emit terminal status-line usage. Account quotas now
+have a separate opt-in source using the default Claude Code login; per-session
+context still requires a status-line observation. Editor integrations
 must likewise load the hooks and emit the relevant events. The extension does
 not discover existing sessions by reading their transcripts; sessions appear
 after their first supported hook or status-line event.
@@ -111,7 +112,8 @@ The explicit `install` command:
 - Keeps unrelated settings and hooks, and records enough integration metadata
   to remove its own changes later.
 - Creates and starts the per-user LaunchAgent
-  `theboringteam.boringnotch.claude-code.bridge` for focus requests.
+  `theboringteam.boringnotch.claude-code.bridge` for focus requests and separately
+  opted-in account usage.
 
 The native UI runs inside the sandboxed host. Selecting the relay folder grants
 access through a macOS security-scoped bookmark; it does not grant access to
@@ -154,29 +156,54 @@ the extension does not invent a successful ending.
 
 ## Usage reports
 
-Usage rings summarize the most recent actual quota report for a provider; they
-do not add percentages across sessions. The lowest remaining window is the
-limiting allowance. The detailed bars show **used** percentage, while the ring
-and its caption show **remaining** percentage. Missing data is unavailable,
-which is different from an actual zero. An old report retains its original
-timestamp and is marked stale; passing a reset time does not invent a fresh quota.
+Claude plan usage is shared across Desktop and CLI sessions, while session context
+is separate. Update the relay with its setup command, then open **Usage → Claude →
+Connect usage**. The native disclosure explains the account access before it is
+enabled. Sign in with the same account in Claude Code and Desktop; this source
+uses the default Claude Code profile, not a browser or Desktop cookie store.
 
-| Display | Source and meaning |
-| --- | --- |
-| **5h** | `rate_limits.five_hour.used_percentage`, converted to remaining subscription allowance. |
-| **7d** | `rate_limits.seven_day.used_percentage`, converted to remaining subscription allowance. |
-| **Context** | `context_window.remaining_percentage`, the current session's context capacity. |
+The separately running relay helper reads only the default `Claude Code-credentials`
+Keychain item and uses its unexpired, `user:profile` OAuth access token with
+`https://api.anthropic.com/api/oauth/profile` and `/api/oauth/usage`. macOS may ask
+you to allow the helper to read that item. These are first-party **undocumented**
+interfaces and may change; this is not Anthropic's public Admin Usage API. The
+helper never stores, rotates, or refreshes Claude's tokens. If the login expires,
+let Claude Code renew it, then refresh or reconnect usage.
 
-Missing fields show **— / unavailable**. Context capacity is not a subscription
-quota, and usage-limit error notifications do not reveal a remaining percentage.
-Snapshots older than five minutes are labeled **Stale**. Reset times, when
-provided, appear in the usage tooltip. The extension does not read credentials
-or query an undocumented usage API to fill missing values.
+A single account fetch runs every five minutes. Manual refresh has a 30-second
+minimum interval and respects server rate-limit cooldowns. Background work never
+prompts for Keychain access. Requests use fixed HTTPS destinations, reject
+redirects, omit cookies, and bound response sizes and timeouts. The host receives
+only sanitized quota snapshots through the relay folder.
+
+The ring shows remaining allowance across the five-hour and all-model weekly
+limits. Detailed bars show **used** percentages. Model-specific windows, such as
+Weekly · Fable, are separate and do not make all models appear exhausted. Plan
+labels come from the login metadata. Reports are bound to account and organization
+identity; switching accounts cannot combine one account's limits with another's.
+
+Old terminal-only relays can still provide five-hour and weekly status-line
+observations. Once account usage is enabled, its observations are never spliced
+with session data. Missing values remain unavailable; actual zero means exhausted.
+Transient failures retain the last report with its original timestamp and visible
+error. Passing a reset time marks data stale until another report arrives.
+
+Cloud-session prepaid credits are not supplied by this source. The OAuth
+`extra_usage` spending limit is not a cloud-credit balance and is not relabeled
+as one. Per-session context still comes from `context_window.remaining_percentage`.
+No transcripts or browser cookies are read to fill absent fields.
+
+Source references: [Desktop usage semantics](https://code.claude.com/docs/en/desktop#check-usage),
+[status-line fields](https://code.claude.com/docs/en/statusline#rate-limit-usage),
+and [CodexBar's documented account integration](https://github.com/steipete/CodexBar/blob/25bba9b7fd9ce83c33053958f7366e23b2dc8a82/docs/claude.md).
 
 ## Disconnect, update, and uninstall
 
 **Disconnect** in extension settings revokes the UI's saved folder connection.
 It does not remove Claude hooks or stop the separately installed relay.
+
+**Disconnect usage** separately stops account fetching and clears its cached
+quota snapshot. It never signs out of Claude or modifies Claude credentials.
 
 To remove the integration using the default relay location:
 
@@ -207,7 +234,8 @@ unrelated tool arguments, and writes only normalized session metadata, project
 paths, model/status, usage, bounded unanswered questions/options, and origin
 metadata needed for focus. Origin metadata can include PID/start time, app
 identity, TTY, and an existing Remote Control session ID. It never opens
-transcript files or credential stores. A pre-existing user status-line command
+transcript files. Hook handlers never open credential stores. Only the account
+usage helper reads the specific Claude Code Keychain item after opt-in. A pre-existing user status-line command
 continues receiving its original input.
 
 Files stay in the chosen local relay folder. New directories use mode `0700` and
@@ -216,7 +244,8 @@ bounded. Writes are atomic and serialized. At the 2,000-record limit, the oldest
 ended record can be evicted; unanswered and working sessions are not silently
 deleted to make space. Uninstall retains observations for explicit user cleanup.
 
-There is no extension analytics service or background account request. Opening
+There is no extension analytics service. Account requests run only after the
+separate usage opt-in; their tokens never enter the native host or relay files. Opening
 Remote Control intentionally opens Claude's website. Native extension code
 shares the host process and its crash fate; a bundle signature is not process
 isolation. The relay runs separately and the UI reads only the folder you chose.
@@ -232,7 +261,7 @@ bash scripts/test.sh dist/theboringteam.boringnotch.claude-code.bnplugin
 
 The default build is Debug for the current architecture with an ad-hoc
 signature. Output is under ignored `dist/`, including
-`BoringAgent-0.2.0-development.zip`. To compile both architecture slices:
+`BoringAgent-0.2.1-development.zip`. To compile both architecture slices:
 
 ```sh
 ./build.sh --architecture universal

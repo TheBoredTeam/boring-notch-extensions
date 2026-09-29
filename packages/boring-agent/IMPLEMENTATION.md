@@ -1,6 +1,6 @@
 # BoringAgent implementation contract
 
-Product: **BoringAgent 0.2.0**. Stable installation ID:
+Product: **BoringAgent 0.2.1**. Stable installation ID:
 `theboringteam.boringnotch.claude-code`. The existing ID, preference namespace,
 relay folder, and Claude helper are retained for in-place upgrades from 0.1.0.
 Swift/AppKit/SwiftUI, macOS 14+, GPL-3.0-only, built independently of Boring Notch.
@@ -50,14 +50,16 @@ adapters, cancels queued work, and fences late results with instance generations
 
 An account quota is distinct from session context. `AgentQuotaWindow` represents
 an arbitrary named window with remaining percentage and an optional reset time.
-The provider ring uses the lowest remaining valid window. Popover bars display
+The provider ring uses the lowest remaining valid overall window; model-scoped
+windows remain separate. Popover bars display
 used percentage. Neither creates allowance from missing data or past reset times.
 
 Claude selects one complete actual quota report by its own usage timestamp. It
 does not sum sessions or stitch windows from different reports. A newer
 context-only report cannot erase the last actual quota report; its original
 timestamp remains and makes it stale after five minutes or a passed reset time.
-Disconnecting the Claude source clears the cached account report.
+Disconnecting account usage stops its helper service and clears the cached
+account report. Session relay connection and account access have separate state.
 
 Providers with no data show unavailable, including the current Codex and
 Antigravity placeholders. A reported zero remains a real exhausted quota. Plan
@@ -69,7 +71,8 @@ with its session in Progress details.
 Explicit relay installation preserves unrelated Claude settings and hooks.
 Current local Claude Code/Desktop Code sessions reload hooks while running.
 The native extension reads only the chosen security-scoped relay folder. It
-never reads transcripts or account credentials, and does not scrape quota APIs.
+never reads transcripts or account credentials. Account access stays in the
+separate helper, after explicit opt-in.
 Only bounded session metadata, questions/options, documented usage, and process
 origin data are stored. Tests use isolated private folders and fake adapters.
 
@@ -87,3 +90,19 @@ load the actual bundle through the host ABI, render both dashboard sections in
 regular/compact/narrow bounds, verify controller ownership, and reconnect the
 real Claude source without a synthetic override. Physical multi-display and
 Intel execution require their own evidence.
+
+## Independent Claude account source
+
+`ClaudeAccountUsageService.swift` runs in the existing relay helper, not in the
+host. It reads the default Claude Code OAuth Keychain item only after a usage
+request opts in, and never persists or refreshes a token. Fixed first-party
+profile/usage endpoints, redirect refusal, bounded transport, single-flight
+requests, five-minute scheduling, and server cooldowns constrain its work.
+The endpoints are undocumented; failures remain visible and recoverable.
+
+`ClaudeAccountUsage.swift` defines sanitized account reports and UUID-identified
+commands. `ClaudeStorage` atomically exchanges them in the selected private relay
+folder. Matching request acknowledgements prevent unrelated session updates from
+clearing a pending account action. The adapter selects the account source while
+enabled; session events cannot erase or splice its quota. Model-scoped windows
+set `contributesToOverall = false`. The native API remains unchanged.

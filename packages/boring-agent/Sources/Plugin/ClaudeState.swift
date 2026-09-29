@@ -78,6 +78,10 @@ final class ClaudePluginState: ObservableObject {
     @Published private(set) var connection: Connection = .disconnected
     @Published private(set) var directory: URL?
     @Published private(set) var actionMessage: String?
+    @Published private(set) var accountUsage: ClaudeAccountUsageRecord?
+    @Published private(set) var accountUsageError: String?
+    @Published private(set) var accountUsageReadError: String?
+    @Published private(set) var accountUsageRequestPending = false
     @Published private(set) var lastReadAt: Date?
     @Published private(set) var now = Date()
     @Published var selectedID: String?
@@ -111,6 +115,7 @@ final class ClaudePluginState: ObservableObject {
     private var panel: NSOpenPanel?
     private let preferences = UserDefaults(suiteName: ClaudePluginResources.identifier)
     private var started = false
+    private var usageRequestID: UUID?
 
     var selectedSession: ClaudeSession? {
         if let selectedID, let value = byID[selectedID], visibleIDs.contains(selectedID) {
@@ -201,7 +206,25 @@ final class ClaudePluginState: ObservableObject {
         if securityScoped { scopedURL = url }
         connection = .connecting
         let current = generation
-        monitor = ClaudeDirectoryMonitor(directory: url) { [weak self] result in
+        monitor = ClaudeDirectoryMonitor(directory: url, receiveUsage: { [weak self] result in
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.isActive, self.generation == current else { return }
+                switch result {
+                case .success(let record):
+                    self.accountUsageReadError = nil
+                    if record?.lastRequestID == self.usageRequestID?.uuidString, self.usageRequestID != nil {
+                        self.accountUsageRequestPending = false
+                        self.accountUsageError = nil
+                    }
+                    if record != self.accountUsage {
+                        self.accountUsage = record
+                    }
+                case .failure:
+                    self.accountUsageReadError = "Cannot read account usage. Check the relay folder or reconnect it."
+                    self.accountUsageRequestPending = false
+                }
+            }
+        }) { [weak self] result in
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.isActive, self.generation == current else { return }
                 switch result {
@@ -225,6 +248,11 @@ final class ClaudePluginState: ObservableObject {
         lastReadAt = nil
         connection = .disconnected
         actionMessage = nil
+        accountUsage = nil
+        accountUsageError = nil
+        accountUsageReadError = nil
+        accountUsageRequestPending = false
+        usageRequestID = nil
         replaceSessions([])
         if clearBookmark { preferences?.removeObject(forKey: "relayDirectoryBookmark") }
     }
@@ -234,6 +262,35 @@ final class ClaudePluginState: ObservableObject {
         now = Date()
         refreshActivityEligibility()
         monitor?.refresh()
+    }
+
+    /// Only a sanitized command crosses into the separately running helper.
+    /// The helper owns opt-in, Keychain access, HTTP, and account observations.
+    func requestAccountUsage(_ operation: ClaudeAccountUsageOperation) {
+        guard isActive, let directory, accountUsage != nil else { return }
+        let current = generation
+        let requestID = UUID()
+        usageRequestID = requestID
+        accountUsageRequestPending = true
+        accountUsageError = nil
+        let request = ClaudeAccountUsageRequest(id: requestID.uuidString, operation: operation,
+                                               createdAt: Date().timeIntervalSince1970)
+        io.async { [weak self] in
+            let result = Result { try ClaudeStorage.requestAccountUsage(request, directory: directory) }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.isActive, self.generation == current, self.usageRequestID == requestID else { return }
+                if case .failure = result {
+                    self.accountUsageError = "Could not contact the account usage helper. Reconnect the relay folder."
+                    self.accountUsageRequestPending = false
+                }
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
+            guard let self, self.isActive, self.generation == current,
+                  self.usageRequestID == requestID, self.accountUsageRequestPending else { return }
+            self.accountUsageRequestPending = false
+            self.accountUsageError = "The usage helper did not respond. Run the relay setup command again."
+        }
     }
 
     /// A containing dashboard can provide its single shared clock without

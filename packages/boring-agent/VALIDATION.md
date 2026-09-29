@@ -1,3 +1,40 @@
+# BoringAgent 0.2.1 account usage validation — 2026-09-29
+
+- Built and signature-verified the independent universal arm64/x86_64 bundle.
+- **44 relay**, **39 account-service**, **1,147 dashboard**, and **83 native ABI**
+  assertions passed locally. The dashboard stress case uses 1,000 sessions across
+  100 injected providers. All 27 controller lifetimes balanced; no eager views
+  or late callbacks were observed.
+- Account-service tests inject credentials, HTTP, and clocks. They cover quota
+  and profile parsing, scoped windows, zero/missing data, opt-in, durable revoke,
+  request acknowledgements, throttling, Retry-After, account changes, and late
+  completion. They never access a real Keychain item or account endpoint.
+- The binary ABI test independently writes an account report into the private
+  relay and renders the mounted compact view with 11% remaining, while retaining
+  all 1,000 session records. Those values are synthetic test data.
+- **30 catalog tests** passed; generated TOML catalog validates.
+- Installed the final ZIP through Settings and verified the installed plugin,
+  helper, and manifest match the tested build. Updated the separate relay helper;
+  Claude settings remained byte-equivalent as parsed JSON. The new account source
+  starts disabled and exposes an explicit Connect usage disclosure.
+
+After explicit user approval, enabled account usage through the native Connect
+usage button. The separate helper returned a real Max 5x account report. Compared
+the native quota rows against Claude Desktop's opened usage popover at the same
+time: five-hour **61% used**, weekly all-model **92% used**, Fable **0% used**.
+BoringAgent showed **8% left**, with matching reset windows. These are observed
+values from that check, not fixed fixtures or permanent account values. Session
+work continued in Desktop without a restart or test prompt. The account source
+was enabled before the live request, and no token appeared in the relay record.
+
+Reopened the installed extension in compact mode and verified the live quota
+popover stays within its layout. The scheduled refresh advanced the report time
+without a manual request; five-hour usage increased to 63%, while the binding
+weekly allowance remained 8% left. No synthetic relay override was active.
+
+The version remains an unnotarized development preview. Cloud credit balances
+are outside the account OAuth source and were not implemented or inferred.
+
 # BoringAgent 0.2.0 development validation — 2026-09-29
 
 ## BoringAgent dashboard

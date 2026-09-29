@@ -8,14 +8,18 @@ final class ClaudeDirectoryMonitor: @unchecked Sendable {
     private let queue = DispatchQueue(label: "theboringteam.claude.directory", qos: .utility)
     private let directory: URL
     private let receive: @Sendable (Result<[ClaudeSession], Error>) -> Void
+    private let receiveUsage: @Sendable (Result<ClaudeAccountUsageRecord?, Error>) -> Void
     private var sources: [DispatchSourceFileSystemObject] = []
     private var work: DispatchWorkItem?
     private var stopped = false
     private var watchingSessions = false
 
-    init(directory: URL, receive: @escaping @Sendable (Result<[ClaudeSession], Error>) -> Void) {
+    init(directory: URL,
+         receiveUsage: @escaping @Sendable (Result<ClaudeAccountUsageRecord?, Error>) -> Void,
+         receive: @escaping @Sendable (Result<[ClaudeSession], Error>) -> Void) {
         self.directory = directory
         self.receive = receive
+        self.receiveUsage = receiveUsage
         queue.async { [self] in
             watch(directory)
             ensureSessionWatch()
@@ -79,6 +83,9 @@ final class ClaudeDirectoryMonitor: @unchecked Sendable {
             let result = Result { try ClaudeStorage.loadSessions(directory: self.directory) }
             guard !self.stopped else { return }
             self.receive(result)
+            let usage = Result { try ClaudeStorage.accountUsage(directory: self.directory) }
+            guard !self.stopped else { return }
+            self.receiveUsage(usage)
         }
         work = next
         queue.asyncAfter(deadline: .now() + .milliseconds(150), execute: next)
