@@ -43,7 +43,7 @@ struct BridgeMain {
                 guard let executable = Bundle.main.executableURL else { throw ClaudeStorageError.io }
                 try ClaudeInstaller.install(directory: directory, settings: settings, executable: executable,
                                              launchAgent: !arguments.contains("--no-launch-agent"))
-                print("Claude relay installed. In the Claude extension settings, select this private folder:\n\(directory.path)\nRestart existing Claude sessions to apply all hooks. Existing hooks and status-line output are preserved.")
+                print("Claude relay installed. In the Claude extension settings, select this private folder:\n\(directory.path)\nCurrent Claude Code sessions reload hooks automatically. Sessions appear after their next supported event; older versions may need a restart. Existing hooks and status-line output are preserved.")
             case "uninstall":
                 try ClaudeInstaller.uninstall(directory: directory, settings: settings)
                 print("Claude relay integration removed. Private session data remains in \(directory.path) for your review and deletion.")

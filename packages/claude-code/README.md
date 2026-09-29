@@ -43,10 +43,14 @@ quota-reset correction in 2.1.243. Exact terminal focus requires the modern
 origin metadata and a recognized Claude executable; otherwise use the explicit
 app or resume-command fallback.
 
-Claude Desktop and editor integrations must actually load the configured hooks
-and emit the relevant events. Some surfaces do not supply CLI status-line
-updates. Their complete workflows are not yet verified. The extension does not
-discover existing sessions by reading their transcripts, so sessions appear
+Claude Desktop's local Code sessions share the CLI's user hooks. A real running
+Desktop session using its embedded Claude Code 2.1.281 was observed loading the
+relay hooks without a restart, reporting activity, and opening its originating
+Desktop app. This does not establish support for Chat, Cowork, cloud, or SSH
+sessions. Desktop did not emit status-line usage during this check, so its quota
+and context values remained unavailable in the extension. Editor integrations
+must likewise load the hooks and emit the relevant events. The extension does
+not discover existing sessions by reading their transcripts; sessions appear
 after their first supported hook or status-line event.
 
 See Claude's official [hooks](https://code.claude.com/docs/en/hooks),
@@ -71,8 +75,11 @@ plus its [version changelog](https://github.com/anthropics/claude-code/blob/main
 4. Read the relay folder printed by the command. In the extension settings,
    choose **Choose relay folder…** and select that exact directory. The default
    is `~/Library/Application Support/BoringClaude`.
-5. Start a new Claude Code session, or restart existing sessions so they load
-   the hooks. Open the **Claude** tab in the notch.
+5. Open the **Claude** tab in the notch. Current Claude Code sessions
+   [reload hooks when settings change](https://code.claude.com/docs/en/settings#when-edits-take-effect),
+   including local Desktop Code sessions. They appear after their next supported
+   event. An idle session may not appear immediately; older versions may need a
+   restart when convenient.
 
 For example, after building this package, setup can be run from this directory:
 
@@ -162,7 +169,8 @@ For a custom setup, run its copied helper with the same `--data-dir` and
 `--settings` arguments used during installation. Uninstall removes its own hook
 commands and LaunchAgent, and restores the prior status-line configuration only
 if the relay's wrapper is still installed. Later unrelated settings edits are
-preserved. Restart Claude sessions to pick up the removal.
+preserved. Current Claude Code sessions reload the hook removal automatically;
+older versions may need a restart when convenient.
 
 Then uninstall the extension in Boring Notch settings. Relay observations and
 the copied helper remain in the private relay folder for your review; delete

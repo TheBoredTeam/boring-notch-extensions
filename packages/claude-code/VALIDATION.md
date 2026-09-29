@@ -42,16 +42,44 @@ creation so it cannot accidentally read a saved real relay connection.
 - A fresh **Claude Code 2.1.283** noninteractive session used temporary settings
   and no session persistence. It returned the requested harmless response and
   the relay recorded its ended lifecycle with PID/start identity. Normal Claude
-  settings and existing sessions were not changed.
+  settings and existing sessions were not changed during that isolated check.
+
+### Real Desktop session
+
+- Connected the same isolated host to a real local Claude Desktop Code session
+  using the embedded Claude Code **2.1.281**. Removed the synthetic relay override
+  and chose the real relay folder through the native folder picker.
+- Installed the observational relay into user settings with a private backup;
+  verified that unrelated values and both existing hook groups were preserved.
+  The running Desktop session loaded the new hooks without being restarted.
+- Observed genuine working and idle reports. The compact tab displayed the real
+  session, and process ancestry identified Claude Desktop with PID/start identity.
+- Clicking **Open session** produced an `appOpened` broker receipt and brought
+  Claude Desktop forward. This verifies the labeled app fallback, not exact
+  selection of an arbitrary Desktop session.
+- Created a separate Desktop session in an empty temporary folder for a harmless
+  `AskUserQuestion` check. The relay captured the exact question and two option
+  labels, and the collapsed notch displayed the Claude logo with one session
+  needing input. After the question was answered in Desktop, the relay cleared
+  attention and the compact tab showed the test session as ready. The original
+  working conversation was not given test prompts or restarted.
+- Desktop's own UI displayed usage, but no status-line usage reached the relay.
+  The extension correctly displayed unavailable quota/context values. No account
+  API, credentials, or transcript files were read to fill those values.
 
 ## Limits
 
-Question/permission and quota rendering used documented-schema synthetic events.
-The noninteractive Claude check does not run a status line, so it did not verify
-live account quota values. Terminal UI control was unavailable in the validation
-environment; exact Terminal/iTerm focusing and a complete reply round-trip were
-not verified. Desktop has no documented per-session deep link. Physical external
-displays, Intel hardware, and every editor/terminal origin remain unverified.
+The complete question/options popover, permission prompts, and quota rendering
+used documented-schema synthetic events. The real Desktop test verified the
+question relay, collapsed attention, and clearing after a Desktop reply; the
+question was answered before its full popover was visually captured. Live quota
+values remain unverified: the noninteractive CLI check does not run a status
+line and Desktop supplied none. Terminal UI control was unavailable in the
+validation environment; exact Terminal/iTerm focusing and its complete reply
+round-trip were not verified. Desktop has no documented native per-session deep
+link; an already enabled Remote Control session can provide a web link. Physical
+external displays, Intel hardware, and every editor/terminal origin remain
+unverified.
 
 The preview host and native plugin share a process. Local app validation used an
 isolated development app, not a clean-Mac production/Gatekeeper acceptance test.
