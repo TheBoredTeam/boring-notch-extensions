@@ -121,16 +121,17 @@ final class ClaudePluginState: ObservableObject {
     var isConnected: Bool { connection == .connected }
     var resumeCommand: String? { selectedSession.map { "claude --resume \($0.id)" } }
 
-    func start() {
+    func start(managesClock: Bool = true) {
         guard isActive, !started else { return }
         started = true
         // One low-frequency shared clock labels stale snapshots. No per-row or
         // hidden-view timer, and no periodic file/network polling.
-        clock = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, self.isActive else { return }
-                self.now = Date()
-                self.refreshActivityEligibility()
+        if managesClock {
+            clock = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.isActive else { return }
+                    self.updateClock(Date())
+                }
             }
         }
         #if DEBUG
@@ -233,6 +234,14 @@ final class ClaudePluginState: ObservableObject {
         now = Date()
         refreshActivityEligibility()
         monitor?.refresh()
+    }
+
+    /// A containing dashboard can provide its single shared clock without
+    /// starting a second timer inside this provider's existing backend.
+    func updateClock(_ date: Date) {
+        guard isActive else { return }
+        now = date
+        refreshActivityEligibility()
     }
 
     private func apply(_ values: [ClaudeSession]) {
@@ -413,7 +422,7 @@ final class ClaudePluginState: ObservableObject {
 
     func copySetupCommand() {
         guard let command = ClaudePluginResources.setupCommand else {
-            actionMessage = "The bundled relay is missing. Reinstall the complete Claude Code extension package."
+            actionMessage = "The bundled relay is missing. Reinstall the complete BoringAgent extension package."
             return
         }
         copy(command, message: "Setup command copied. Run it in your terminal.")

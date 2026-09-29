@@ -69,7 +69,7 @@ final class ClaudeContentController: NSViewController {
 
 @MainActor
 private final class ClaudePlugin {
-    let state = ClaudePluginState()
+    let state = AgentDashboardState()
     private var context: UnsafeMutableRawPointer?
     private var command: BNClaudeCommand?
     private var buffer: UnsafeMutablePointer<CChar>?
@@ -113,39 +113,36 @@ private final class ClaudePlugin {
 
     func activitySnapshot() -> UnsafePointer<CChar>? {
         let activities: [[String: Any]] = state.isActive && state.currentAttentionCount > 0 ? [[
-            "id": "attention", "label": "Claude: \(state.currentAttentionCount) sessions need input",
+            "id": "attention", "label": "BoringAgent: \(state.currentAttentionCount) sessions need input",
             "relevance": "timeSensitive", "surface": "desktop"
         ]] : []
         return encode(["activities": activities])
     }
 
     func tabSnapshot() -> UnsafePointer<CChar>? {
-        var tab: [String: Any] = [
-            "id": "sessions", "title": "Claude", "symbol": "sparkle",
+        let tab: [String: Any] = [
+            "id": "sessions", "title": "Agents", "symbol": "square.stack.3d.up.fill",
             "presentations": ["regular", "compact"]
         ]
-        // New hosts accept the product's real template PNG; old preview hosts
-        // ignore this additive field and retain the required symbol fallback.
-        if let icon = ClaudePluginResources.logoPNGBase64 { tab["iconPNG"] = icon }
         return encode(["tabs": state.isActive ? [tab] : []])
     }
 
     func activityController(id: String, region: Int32) -> NSViewController? {
         guard state.isActive, state.currentAttentionCount > 0, id == "attention", region == 0 || region == 1 else { return nil }
-        return ClaudeContentController(rootView: ClaudeActivityView(state: state, region: region),
+        return ClaudeContentController(rootView: BoringAgentActivityView(state: state, region: region),
             role: region == 0 ? "activity-leading" : "activity-trailing",
             size: CGSize(width: region == 0 ? 62 : 45, height: 24))
     }
 
     func tabController(id: String, layout: ClaudeTabLayout) -> NSViewController? {
         guard state.isActive, id == "sessions" else { return nil }
-        return ClaudeContentController(rootView: ClaudeTabView(state: state, layout: layout),
+        return ClaudeContentController(rootView: BoringAgentTabView(state: state, layout: layout),
             role: "tab-\(layout.presentation.rawValue)", size: layout.contentSize.size)
     }
 
     var settingsController: NSViewController {
         if let settings { return settings }
-        let controller = ClaudeContentController(rootView: ClaudeSettingsView(state: state),
+        let controller = ClaudeContentController(rootView: BoringAgentSettingsView(state: state),
             role: "settings", size: CGSize(width: 470, height: 540))
         settings = controller
         return controller
@@ -161,7 +158,9 @@ private final class ClaudePlugin {
         guard ProcessInfo.processInfo.environment["BN_CLAUDE_TEST_DIRECTORY"] != nil else { return }
         if name == "claude.test.refresh" { state.refresh() }
         if name.hasPrefix("claude.test.search:") { state.query = String(name.dropFirst("claude.test.search:".count)) }
-        if name.hasPrefix("claude.test.select:") { state.select(String(name.dropFirst("claude.test.select:".count))) }
+        if name.hasPrefix("claude.test.select:") { state.select("claude:" + String(name.dropFirst("claude.test.select:".count))) }
+        if name == "agent.test.section:progress" { state.section = .progress }
+        if name == "agent.test.section:usage" { state.section = .usage }
         #endif
     }
 

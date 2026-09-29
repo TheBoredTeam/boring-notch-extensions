@@ -1,8 +1,0 @@
-{
-  "id": "theboringteam.boringnotch.claude-code",
-  "name": "Claude Code",
-  "version": "0.1.0",
-  "apiVersion": 1,
-  "activation": "always",
-  "capabilities": ["liveActivities", "tabs"]
-}

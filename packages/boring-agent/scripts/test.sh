@@ -16,7 +16,7 @@ elif [[ $# -ne 0 ]]; then
     echo "Unrecognized test arguments" >&2
     exit 2
 fi
-if [[ ! -f "$bundle_path/Contents/MacOS/ClaudeCode" ]]; then
+if [[ ! -f "$bundle_path/Contents/MacOS/BoringAgent" ]]; then
     echo "A complete debug .bnplugin bundle is required" >&2
     exit 2
 fi
@@ -32,6 +32,15 @@ xcrun swiftc -swift-version 5 -parse-as-library -module-name BoringClaudeBridgeT
     -module-cache-path "$module_cache" Sources/Shared/*.swift Sources/Bridge/Claude*.swift \
     Tests/BridgeTests.swift -framework AppKit -o "$test_output/bridge-tests"
 "$test_output/bridge-tests"
+
+# Inject memory-only adapters: this test never starts the real Claude backend,
+# reads saved preferences, or touches the user's relay/configuration.
+xcrun swiftc -swift-version 5 -parse-as-library -module-name BoringAgentDashboardTests \
+    -module-cache-path "$module_cache" Sources/Shared/*.swift \
+    Sources/Plugin/AgentDashboardState.swift Sources/Plugin/AgentProviders.swift \
+    Sources/Plugin/ClaudeState.swift Sources/Plugin/DirectoryMonitor.swift \
+    Tests/AgentDashboardTests.swift -framework AppKit -o "$test_output/dashboard-tests"
+"$test_output/dashboard-tests"
 
 xcrun swiftc -swift-version 5 -parse-as-library -module-name BoringClaudeABITests \
     -module-cache-path "$module_cache" Sources/Shared/*.swift Tests/ABITests.swift \

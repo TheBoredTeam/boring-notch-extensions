@@ -9,7 +9,7 @@ not compile extensions into Boring Notch.
 
 Free extension source can live in packages/<extension-name>/ in this monorepo.
 Each package has its own license, standalone build, tests, and README. Use
-packages/claude-code as a concrete native activity/tab example, not a host SDK.
+packages/boring-agent as a concrete native activity/tab example, not a host SDK.
 Third-party publishers may also build in their own repositories. extensions/
 contains only TOML listing records; never put product source or ZIPs there.
 

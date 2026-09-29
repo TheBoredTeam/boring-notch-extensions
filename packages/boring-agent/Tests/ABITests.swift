@@ -124,7 +124,7 @@ struct ABITests {
                 question: waiting ? "Fixture question \(suffix): which environment?" : nil,
                 questionOptions: waiting ? ["Staging", "Production"] : [], attentionKind: waiting ? "question" : nil,
                 toolName: waiting ? "AskUserQuestion" : nil,
-                usage: ClaudeUsage(updatedAt: now, fiveHour: ClaudeQuotaWindow(remainingPercent: Double(index % 100), resetsAt: now + 3600),
+                usage: ClaudeUsage(updatedAt: now + Double(index) / 1000, fiveHour: ClaudeQuotaWindow(remainingPercent: Double(index % 100), resetsAt: now + 3600),
                     sevenDay: ClaudeQuotaWindow(remainingPercent: 63, resetsAt: now + 86_400), contextRemaining: 74))
             try JSONEncoder().encode(session).write(to: ClaudeStorage.sessionURL(id: session.id, directory: directory))
         }
@@ -145,7 +145,7 @@ struct ABITests {
         setenv("BN_CLAUDE_TEST_LOG", telemetry.path, 1)
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.prohibited)
-        let binary = URL(fileURLWithPath: CommandLine.arguments[1]).appendingPathComponent("Contents/MacOS/ClaudeCode")
+        let binary = URL(fileURLWithPath: CommandLine.arguments[1]).appendingPathComponent("Contents/MacOS/BoringAgent")
         guard let image = dlopen(binary.path, RTLD_NOW | RTLD_LOCAL) else {
             let reason = dlerror().map { String(cString: $0) } ?? "unknown loader failure"
             throw NSError(domain: "ClaudeABITests", code: 1, userInfo: [NSLocalizedDescriptionKey: reason])
@@ -173,25 +173,26 @@ struct ABITests {
         try expect(publishedTabs?.count == 1, "One tab for 1,000 sessions")
         let logoURL = URL(fileURLWithPath: CommandLine.arguments[1]).appendingPathComponent("Contents/Resources/ClaudeLogo.png")
         let packagedLogo = try Data(contentsOf: logoURL)
-        let publishedLogo = (publishedTabs?.first?["iconPNG"] as? String).flatMap { Data(base64Encoded: $0) }
-        try expect(publishedLogo == packagedLogo, "Tab publishes the exact bundled Claude logo")
+        try expect(publishedTabs?.first?["title"] as? String == "Agents", "One provider-neutral Agents tab")
+        try expect(publishedTabs?.first?["symbol"] as? String == "square.stack.3d.up.fill", "Tab uses provider-neutral artwork")
+        try expect(NSImage(data: packagedLogo) != nil, "Claude adapter retains its authentic bundled logo")
         try expect(last("resources")?["logoExists"] as? Bool == true, "Native UI resolves the logo from its own bundle")
         try expect(last("resources")?["helperExists"] as? Bool == true, "Setup resolves the bundled relay helper")
         try expect(events("controller.create").isEmpty, "Registration creates no eager controllers")
         let started = Date()
         update(instance, nil, 0)
-        try wait("All 1,000 fixture sessions loaded") { last("state.loaded")?["sessionCount"] as? Int == 1_000 }
+        try wait("All 1,000 fixture sessions loaded") { last("agent.state.loaded")?["sessionCount"] as? Int == 1_000 }
         let loadMilliseconds = Date().timeIntervalSince(started) * 1000
         try expect(events("controller.create").isEmpty, "Loading 1,000 sessions creates zero controllers")
         try expect((snapshot(activities, instance)["activities"] as? [[String: Any]])?.count == 1, "One aggregate activity for 200 questions")
-        try expect(last("state.loaded")?["attentionCount"] as? Int == 200, "All waiting sessions counted")
+        try expect(last("agent.state.loaded")?["attentionCount"] as? Int == 200, "All waiting sessions counted")
         send(event, instance, "claude.test.search:Project 0999")
-        try wait("Search reaches far-end session") { last("state.search")?["visibleCount"] as? Int == 1 }
+        try wait("Search reaches far-end session") { last("agent.state.search")?["visibleCount"] as? Int == 1 }
         send(event, instance, "claude.test.select:probe-0999")
         send(event, instance, "claude.test.search:NoSuchFixture")
-        try expect(last("state.search")?["visibleCount"] as? Int == 0, "Empty search result is stable")
+        try expect(last("agent.state.search")?["visibleCount"] as? Int == 0, "Empty search result is stable")
         send(event, instance, "claude.test.search:")
-        try expect(last("state.search")?["visibleCount"] as? Int == 1_000, "Clearing search restores all sessions")
+        try expect(last("agent.state.search")?["visibleCount"] as? Int == 1_000, "Clearing search restores all sessions")
         send(event, instance, "claude.test.select:probe-0424")
 
         for invalid in ["{}", layout("unknown"), layout("compact", width: -1), layout("compact", height: 0),
@@ -211,10 +212,13 @@ struct ABITests {
             var compact: NSViewController? = try mount(tab, instance, context: layout("compact"))
             weakRegular = regular; weakCompact = compact
             try expect(regular !== compact, "Every simultaneous mount owns a fresh native controller")
+            try render(regular!, size: CGSize(width: 578, height: 132), name: "regular-usage")
+            try render(compact!, size: CGSize(width: 336, height: 132), name: "compact-usage")
+            send(event, instance, "agent.test.section:progress")
             try render(regular!, size: CGSize(width: 578, height: 132), name: "regular-1000")
             try render(compact!, size: CGSize(width: 336, height: 132), name: "compact-1000")
             let createdBeforeUpdate = events("controller.create").count
-            let loads = events("state.loaded").count
+            let loads = events("agent.state.loaded").count
             try ClaudeStorage.update(id: "probe-0424", directory: directory) { old in
                 guard var value = old else { return nil }
                 value.usage?.fiveHour?.remainingPercent = 17
@@ -222,10 +226,10 @@ struct ABITests {
                 return value
             }
             send(event, instance, "claude.test.refresh")
-            try wait("Live update reaches mounted views") { events("state.loaded").count > loads }
+            try wait("Live update reaches mounted views") { events("agent.state.loaded").count > loads }
             try expect(events("controller.create").count == createdBeforeUpdate, "Live updates retain existing controllers")
-            try expect(last("state.loaded")?["selectedID"] as? String == "probe-0424", "Live update preserves non-default selection")
-            try expect(last("state.loaded")?["selectedQuestionPresent"] as? Bool == true, "Usage update preserves waiting question")
+            try expect(last("agent.state.loaded")?["selectedID"] as? String == "claude:probe-0424", "Live update preserves non-default selection")
+            try expect(last("agent.state.loaded")?["selectedQuestionPresent"] as? Bool == true, "Usage update preserves waiting question")
             try render(compact!, size: CGSize(width: 336, height: 132), name: "compact-live-update")
             regular = nil; compact = nil
         }
@@ -256,7 +260,7 @@ struct ABITests {
             if let borrowed { heldAfterDestroy = Unmanaged<NSViewController>.fromOpaque(borrowed).takeUnretainedValue() }
         }
         spin(0.1)
-        let loadsBeforeDestroy = events("state.loaded").count
+        let loadsBeforeDestroy = events("agent.state.loaded").count
         let callbacksBeforeDestroy = recorder.names.count
         destroy(instance); destroyed = true; recorder.destroyed = true
         // Pending directory work and externally retained settings must become inert after destruction.
@@ -265,7 +269,7 @@ struct ABITests {
         }
         spin(0.4)
         try expect(recorder.names.count == callbacksBeforeDestroy && recorder.lateCallbacks == 0, "No callback after destroy")
-        try expect(events("state.loaded").count == loadsBeforeDestroy, "Pending reload cannot publish after destroy")
+        try expect(events("agent.state.loaded").count == loadsBeforeDestroy, "Pending reload cannot publish after destroy")
         try expect(!recorder.wrongThread, "Every host callback is on the main thread")
         autoreleasepool { _ = heldAfterDestroy?.view; heldAfterDestroy = nil }
         spin(0.1)

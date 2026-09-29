@@ -1,4 +1,45 @@
-# Development validation — 2026-09-29
+# BoringAgent 0.2.0 development validation — 2026-09-29
+
+## BoringAgent dashboard
+
+- Built and signature-verified the independent universal arm64/x86_64 bundle
+  with the existing development identity. Local execution ran on Apple silicon.
+- **1,143 dashboard assertions:** 1,000 sessions across 100 injected providers,
+  duplicate registration, namespaced identities, action routing, selection,
+  membership changes, actual versus missing/zero quota, latest account reports,
+  context separation, stale/reset handling, and late callback/action fencing.
+- **44 relay assertions:** preserved the existing Claude integration checks.
+- **77 native ABI assertions:** loaded the separately compiled bundle, rendered
+  Usage and Progress in regular 578×132 and compact 336×132 bounds, exercised
+  narrow 300×120 bounds, preserved selection through updates, and balanced all
+  27 controller lifetimes with zero eager controllers and zero late callbacks.
+- **30 catalog tests** passed. Workflow YAML and embedded shell scripts parse.
+- Installed the ZIP through the isolated host's Settings as an in-place update
+  from the Claude Code preview. The stable bundle ID and saved relay bookmark
+  were preserved; the restarted BoringAgent Progress view displayed the real
+  Claude Desktop sessions without selecting a new folder.
+- Visually inspected the Usage rings, selected section, native quota popover,
+  session list, and full question/options popover in the host. Isolated sample
+  reports exercised 56% remaining with 28% and 44% used quota rows. These values
+  were synthetic layout checks, never presented as live account usage.
+- Reinstalled the final signed ZIP and verified the installed executable,
+  relay, and manifest match the build. Temporarily moved a private fixture relay
+  after loading quota: the card showed **Needs attention**, the popover retained
+  both quota rows and displayed the access error. Restoring the fixture and
+  refreshing cleared the error. Restored the real relay in compact mode.
+
+Claude is the only connected provider in this version. Codex and Antigravity
+use explicit unavailable adapters. Their neutral cards expose no fake quotas
+or inactive connect/refresh actions. Their adapters require implementation and
+real-provider validation before being advertised as connected.
+
+The real Desktop source still supplies session events but no status-line quota
+values. The dashboard preserves this as unavailable. It retains the existing
+app-level handoff fallback and does not auto-answer or approve agent requests.
+No production-host/Gatekeeper acceptance, notarization, Intel execution, or
+physical multi-display claim is made by these local development checks.
+
+## Earlier Claude 0.1.0 baseline
 
 The independent universal Debug bundle was signed with TheBoredTeam's existing
 self-signed identity. Both arm64 and x86_64 slices passed signature verification.
