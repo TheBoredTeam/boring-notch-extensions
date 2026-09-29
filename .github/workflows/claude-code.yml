@@ -1,0 +1,115 @@
+name: Claude Code development extension
+
+on:
+  pull_request:
+    paths: ["packages/claude-code/**", ".github/workflows/claude-code.yml"]
+  push:
+    branches: [main]
+    paths: ["packages/claude-code/**", ".github/workflows/claude-code.yml"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish a self-signed development prerelease from current main
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: claude-code-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build both architectures without release credentials
+        working-directory: packages/claude-code
+        run: bash build.sh --configuration debug --architecture universal
+      - name: Relay, native ABI, lifecycle, and 1,000-session stress tests
+        working-directory: packages/claude-code
+        run: bash scripts/test.sh dist/theboringteam.boringnotch.claude-code.bnplugin
+
+  publish:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: macos-15
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require the tested revision to still be current main
+        shell: bash
+        run: test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA"
+      - name: Import only the extension's self-signed identity
+        shell: bash
+        env:
+          SIGNING_P12: ${{ secrets.CLAUDE_CODE_SIGNING_P12 }}
+          SIGNING_PASSWORD: ${{ secrets.CLAUDE_CODE_SIGNING_PASSWORD }}
+          SIGNING_IDENTITY: ${{ secrets.CLAUDE_CODE_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          keychain="$RUNNER_TEMP/claude-code-signing.keychain-db"
+          keychain_password="$(openssl rand -hex 32)"
+          echo "::add-mask::$keychain_password"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          python3 - <<'PY'
+          import base64, os
+          from pathlib import Path
+          Path(os.environ['RUNNER_TEMP'], 'claude-code-signing.p12').write_bytes(base64.b64decode(os.environ['SIGNING_P12'], validate=True))
+          PY
+          security import "$RUNNER_TEMP/claude-code-signing.p12" -k "$keychain" -P "$SIGNING_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
+          # The P12 has exactly one self-signed identity. Trust only its public
+          # certificate for code signing in this disposable runner's user domain.
+          security find-certificate -a -p "$keychain" > "$RUNNER_TEMP/claude-code-public.pem"
+          security add-trusted-cert -r trustRoot -p codeSign -k "$keychain" "$RUNNER_TEMP/claude-code-public.pem"
+          python3 - <<'PY'
+          import os, subprocess
+          identities = subprocess.check_output(['security', 'find-identity', '-v', '-p', 'codesigning', os.environ['RUNNER_TEMP'] + '/claude-code-signing.keychain-db'], text=True)
+          if os.environ['SIGNING_IDENTITY'] not in identities:
+              raise SystemExit('Expected signing identity is not valid for code signing')
+          PY
+          rm -f "$RUNNER_TEMP/claude-code-signing.p12"
+      - name: Build and verify the signed universal preview
+        working-directory: packages/claude-code
+        env:
+          SIGNING_IDENTITY: ${{ secrets.CLAUDE_CODE_SIGNING_IDENTITY }}
+        run: bash build.sh --configuration debug --architecture universal --identity "$SIGNING_IDENTITY" --keychain "$RUNNER_TEMP/claude-code-signing.keychain-db"
+      - name: Test the signed artifact
+        working-directory: packages/claude-code
+        run: bash scripts/test.sh dist/theboringteam.boringnotch.claude-code.bnplugin
+      - name: Publish immutable development prerelease
+        working-directory: packages/claude-code
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA"
+          version="$(python3 -c 'import json; print(json.load(open("manifest.json"))["version"])')"
+          tag="claude-code-v${version}-dev.1"
+          archive="ClaudeCode-${version}-development.zip"
+          (cd dist && shasum -a 256 "$archive" > SHA256SUMS)
+          if git ls-remote --exit-code origin "refs/tags/$tag" >/dev/null 2>&1; then
+            git fetch --no-tags origin "refs/tags/$tag:refs/tags/$tag"
+            test "$(git rev-list -n 1 "$tag")" = "$GITHUB_SHA"
+          else
+            git tag "$tag" "$GITHUB_SHA"
+            git push origin "refs/tags/$tag"
+          fi
+          gh release create "$tag" "dist/$archive" dist/SHA256SUMS --verify-tag --prerelease --title "Claude Code ${version} — development preview" --notes-file RELEASE.md
+      - name: Remove temporary signing material
+        if: always()
+        shell: bash
+        run: |
+          security remove-trusted-cert "$RUNNER_TEMP/claude-code-public.pem" 2>/dev/null || true
+          security delete-keychain "$RUNNER_TEMP/claude-code-signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/claude-code-signing.p12" "$RUNNER_TEMP/claude-code-public.pem"

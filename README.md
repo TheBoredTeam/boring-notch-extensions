@@ -12,8 +12,19 @@ https://raw.githubusercontent.com/TheBoredTeam/boring-notch-extensions/main/cata
 TOML is the authoring format; JSON is the generated delivery format. The app
 fetches one bounded catalog through its native JSON decoder, without listing a
 GitHub directory or fetching every source file. This repository contains metadata,
-tooling, and an API reference. Extension code, native UI, business logic, and
-licensing stay in each publisher's independently built bundle.
+tooling, an API reference, and independently built free extensions in `packages/`.
+Extension code, native UI, business logic, and licensing stay in each publisher's
+bundle; none of these packages is compiled into Boring Notch.
+
+## Free extension packages
+
+| Package | Purpose | Availability |
+| --- | --- | --- |
+| [Claude Code](packages/claude-code) | Session activity, questions, and documented usage in regular and compact tabs | Self-signed development preview; requires a compatible Debug host |
+
+Each package owns its source, license, standalone build, tests, and release.
+Third-party publishers can use their own repositories. Store records under
+`extensions/` contain only metadata, never extension source or compiled bundles.
 
 ## Build an extension with a coding assistant
 

@@ -1,0 +1,39 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-only
+set -euo pipefail
+
+package_root="$(cd "$(dirname "$0")/.." && pwd)"
+if [[ $# -lt 1 ]]; then
+    echo "Usage: bash scripts/test.sh /path/to/debug-extension.bnplugin [--module-cache /path/to/cache]" >&2
+    exit 2
+fi
+bundle_path="$1"
+shift
+module_cache="${BN_CLAUDE_MODULE_CACHE:-$package_root/dist/.module-cache}"
+if [[ $# -eq 2 && "$1" == "--module-cache" ]]; then
+    module_cache="$2"
+elif [[ $# -ne 0 ]]; then
+    echo "Unrecognized test arguments" >&2
+    exit 2
+fi
+if [[ ! -f "$bundle_path/Contents/MacOS/ClaudeCode" ]]; then
+    echo "A complete debug .bnplugin bundle is required" >&2
+    exit 2
+fi
+bundle_path="$(cd "$bundle_path" && pwd)"
+mkdir -p "$module_cache"
+module_cache="$(cd "$module_cache" && pwd)"
+test_output="$(mktemp -d "${TMPDIR:-/tmp}/boring-claude-test-build.XXXXXX")"
+trap 'rm -r "$test_output"' EXIT
+cd "$package_root"
+
+# Build tests separately from the plugin. The ABI harness loads the real binary.
+xcrun swiftc -swift-version 5 -parse-as-library -module-name BoringClaudeBridgeTests \
+    -module-cache-path "$module_cache" Sources/Shared/*.swift Sources/Bridge/Claude*.swift \
+    Tests/BridgeTests.swift -framework AppKit -o "$test_output/bridge-tests"
+"$test_output/bridge-tests"
+
+xcrun swiftc -swift-version 5 -parse-as-library -module-name BoringClaudeABITests \
+    -module-cache-path "$module_cache" Sources/Shared/*.swift Tests/ABITests.swift \
+    -framework AppKit -o "$test_output/abi-tests"
+"$test_output/abi-tests" "$bundle_path"

@@ -7,10 +7,12 @@ and controls over duplicated layouts or speculative frameworks.
 
 ## Scope and source of truth
 
-This repository contains Store records, catalog tooling, and an API reference.
-Create extension source in a separate project/repository. Do not put product
-code, bundles, ZIPs, customer data, or build output under `extensions/`; that
-directory contains only TOML catalog records. Do not add an extension target,
+This repository is a monorepo for free extensions, Store records, catalog tooling,
+and an API reference. Put each free extension's independently built source in
+`packages/<extension-name>/`, with its own README, license, build, and tests.
+Third-party publishers may also maintain separate repositories. Do not put
+product code, bundles, ZIPs, customer data, or build output under `extensions/`;
+that directory contains only TOML catalog records. Do not add an extension target,
 source dependency, or bundled product to the Boring Notch build.
 
 Read [the API provenance](docs/README.md), [the exact header](docs/extension-api.h),
@@ -37,7 +39,8 @@ public C ABI used by independent bundles.
    mount a native view, update its model, and destroy it cleanly. Then add behavior.
 3. Default to macOS 14+ with AppKit and SwiftUI, or AppKit alone. Record the actual
    minimum version and architectures tested. Guard newer system APIs explicitly.
-4. Build in the extension's own project. A suitable starting layout is:
+4. Build in the extension's own project under `packages/` or its publisher's
+   repository. A suitable starting layout is:
 
    ```text
    MyExtension/
@@ -192,6 +195,15 @@ navigation/search within their content. Titles are nonblank, without control
 characters, and at most 64 UTF-8 bytes; SF Symbol names are at most 128 bytes.
 Use available symbols with meaningful accessible titles. IDs follow the activity
 grammar and remain stable through title/icon changes.
+
+For publisher artwork, optional `iconPNG` contains base64 of one complete static
+PNG, at most 16,384 encoded UTF-8 bytes and 1–128 pixels on either axis. The host
+renders it as a template glyph in the strip and overflow menu. Keep `symbol` as
+an older-host fallback. Invalid, oversized, animated, or unsupported artwork
+falls back without removing the tab. No URLs or SVG enter this field. Icons are
+decoded once per artwork change; a title or icon update preserves mounted content.
+Use authentic product assets when identifying an integration, with attribution
+and any required license/trademark notices; do not imply publisher affiliation.
 
 Omitting `presentations` means regular-only. Compact requires both explicit
 `compact` membership and `bn_extension_tab_view_v2`. With v2 present, the host

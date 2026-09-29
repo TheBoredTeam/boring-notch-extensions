@@ -7,6 +7,12 @@ Users install a ZIP through Settings > Extensions. This repository distributes
 reviewed TOML Store records and generates one JSON feed for the app; it does
 not compile extensions into Boring Notch.
 
+Free extension source can live in packages/<extension-name>/ in this monorepo.
+Each package has its own license, standalone build, tests, and README. Use
+packages/claude-code as a concrete native activity/tab example, not a host SDK.
+Third-party publishers may also build in their own repositories. extensions/
+contains only TOML listing records; never put product source or ZIPs there.
+
 Read these documents before generating code, in this order:
 
 1. AGENTS.md — implementation workflow, conventions, ownership, layouts,
@@ -26,6 +32,8 @@ Compatibility: the activities/tabs contract is a developer preview, not a promis
 that a released Boring Notch app supports it. Verify the target host's actual
 API before testing. The manifest remains apiVersion 1; tab_view_v2 is an additive
 factory, not manifest API version 2. Do not invent host commands or SDK packages.
+Optional iconPNG publishes a bounded static template PNG for tab artwork; retain
+the SF Symbol fallback and follow the exact size/format limits in the header.
 
 Copy this prompt into your coding assistant and replace the bracketed parts:
 

@@ -1,0 +1,38 @@
+schemaVersion = 1
+id = "theboringteam.boringnotch.claude-code"
+slug = "claude-code"
+name = "Claude Code"
+icon = "https://raw.githubusercontent.com/TheBoredTeam/boring-notch-extensions/main/assets/extensions/claude-code.png"
+tagline = "Keep your Claude sessions and questions in view."
+description = "A free, independently built native extension with a searchable session list, regular and compact layouts, question alerts, and documented five-hour, seven-day, and context usage. Return to Claude to answer; the extension never approves tools or sends replies."
+version = "0.1.0"
+status = "preview"
+statusNote = "Self-signed development preview. Requires the native-extension Debug host with development plugins enabled. Not notarized and not installable in a production host."
+categories = ["Developer Tools", "Productivity"]
+requirements = ["macOS 14 or later", "Compatible Boring Notch native-extension Debug host", "Current Claude Code CLI; 2.1.243 or later recommended", "Explicit relay installation and relay-folder access"]
+websiteUrl = "https://github.com/TheBoredTeam/boring-notch-extensions/tree/main/packages/claude-code"
+sourceUrl = "https://github.com/TheBoredTeam/boring-notch-extensions/tree/main/packages/claude-code"
+supportUrl = "https://github.com/TheBoredTeam/boring-notch-extensions/issues"
+privacy = "Reads documented hook and status-line input. Stores bounded local session metadata, questions, choices, and usage in a private relay folder. Does not read transcripts, credentials, or unrelated tool arguments. No extension analytics or usage API scraping. Question text can contain sensitive project information."
+installSteps = ["Read the package README and download its development ZIP from GitHub Releases.", "Install in a compatible Debug host through Settings → Extensions.", "Copy and run the bundled relay setup command, then select the printed relay folder in extension settings.", "Restart Claude sessions so the hooks and status line take effect."]
+
+[developer]
+name = "TheBoredTeam"
+url = "https://github.com/TheBoredTeam"
+
+[price]
+amount = 0
+currency = "USD"
+billing = "free"
+
+[[features]]
+title = "One tab, many sessions"
+description = "Search sessions and filter unanswered questions. Compact mode keeps the selected session and essential actions inside the host's bounds."
+
+[[features]]
+title = "Questions where you can see them"
+description = "An aggregate activity calls attention to questions and permissions. Open the original terminal or an existing Remote Control link when available. Desktop can only be activated as an app."
+
+[[features]]
+title = "Usage without guessing"
+description = "Separates subscription allowance from context capacity. Missing or stale usage stays clearly labeled."
