@@ -82,6 +82,7 @@ final class ClaudePluginState: ObservableObject {
     @Published private(set) var accountUsageError: String?
     @Published private(set) var accountUsageReadError: String?
     @Published private(set) var accountUsageRequestPending = false
+    @Published private(set) var inlineRepliesEnabled = false
     @Published private(set) var lastReadAt: Date?
     @Published private(set) var now = Date()
     @Published var selectedID: String?
@@ -116,6 +117,50 @@ final class ClaudePluginState: ObservableObject {
     private let preferences = UserDefaults(suiteName: ClaudePluginResources.identifier)
     private var started = false
     private var usageRequestID: UUID?
+    private let messages = AgentMessageClient()
+    private var messageHeartbeat: Timer?
+
+    func setInlineRepliesEnabled(_ enabled: Bool) {
+        guard isActive, connection == .connected, let directory else { return }
+        let current = generation
+        io.async { [weak self] in
+            let result = Result { try ClaudeMessagingStorage.setQuestionsEnabled(enabled, directory: directory) }
+            Task { @MainActor in
+                guard let self, self.isActive, self.generation == current else { return }
+                switch result {
+                case .success: self.inlineRepliesEnabled = enabled; self.reconcileMessageHeartbeat(); self.refresh()
+                case .failure: self.actionMessage = "Could not change inline replies. Check the relay folder."
+                }
+            }
+        }
+    }
+
+    private func reconcileMessageHeartbeat() {
+        guard isActive, inlineRepliesEnabled, directory != nil, connection == .connected else {
+            messageHeartbeat?.invalidate(); messageHeartbeat = nil; return
+        }
+        guard messageHeartbeat == nil else { return }
+        touchMessageHeartbeat()
+        messageHeartbeat = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.touchMessageHeartbeat() }
+        }
+    }
+
+    private func touchMessageHeartbeat() {
+        guard isActive, inlineRepliesEnabled, connection == .connected, let directory else { return }
+        io.async { try? ClaudeMessagingStorage.touchQuestionClient(directory: directory) }
+    }
+
+    func sendMessage(_ command: AgentMessageCommand,
+                     completion: @escaping @MainActor (AgentMessageReceipt) -> Void) {
+        guard isActive, connection == .connected, let directory,
+              let session = byID[command.sessionID], let control = session.control,
+              command.providerID == "claude", command.matches(control) else {
+            completion(AgentMessageReceipt(id: command.id, sessionID: command.sessionID,
+                state: .rejected, message: "The question or connection changed. Refresh and review the session.")); return
+        }
+        messages.send(command, directory: directory, completion: completion)
+    }
 
     var selectedSession: ClaudeSession? {
         if let selectedID, let value = byID[selectedID], visibleIDs.contains(selectedID) {
@@ -224,6 +269,11 @@ final class ClaudePluginState: ObservableObject {
                     self.accountUsageRequestPending = false
                 }
             }
+        }, receiveConfiguration: { [weak self] enabled in
+            Task { @MainActor in
+                guard let self, self.isActive, self.generation == current else { return }
+                self.inlineRepliesEnabled = enabled; self.reconcileMessageHeartbeat()
+            }
         }) { [weak self] result in
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.isActive, self.generation == current else { return }
@@ -239,6 +289,9 @@ final class ClaudePluginState: ObservableObject {
 
     func disconnect(clearBookmark: Bool = true) {
         generation = UUID()
+        messages.stop()
+        messageHeartbeat?.invalidate(); messageHeartbeat = nil
+        inlineRepliesEnabled = false
         cancelFocusFeedback()
         monitor?.stop()
         monitor = nil
@@ -322,11 +375,12 @@ final class ClaudePluginState: ObservableObject {
         filterSessions()
     }
 
-    /// Hook state is a last report, not proof that a process still exists. A
-    /// single clock marks old reports stale; questions remain in the tab until
-    /// a resolving event arrives, but old reports stop claiming notch urgency.
+    /// An idle session need not emit another hook. A separately verified live
+    /// channel/question lease establishes liveness without rewriting its last
+    /// activity time or changing history ordering. Unleased old reports expire.
     func isStale(_ session: ClaudeSession) -> Bool {
-        session.phase != .ended && now.timeIntervalSince1970 - session.updatedAt > 600
+        session.phase != .ended && session.control?.hasLiveLease(at: now) != true &&
+            now.timeIntervalSince1970 - session.updatedAt > 600
     }
 
     func statusLabel(_ session: ClaudeSession) -> String {

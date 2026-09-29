@@ -82,7 +82,7 @@ def main() -> None:
         (bundle / "Contents/Info.plist").write_bytes(plistlib.dumps({
             "CFBundleIdentifier": manifest["id"], "CFBundleName": manifest["name"],
             "CFBundleExecutable": executable.name, "CFBundlePackageType": "BNDL",
-            "CFBundleShortVersionString": manifest["version"], "CFBundleVersion": "3",
+            "CFBundleShortVersionString": manifest["version"], "CFBundleVersion": "4",
             "LSMinimumSystemVersion": "14.0",
         }))
         shutil.copyfile(ROOT / "manifest.json", resources / "manifest.json")

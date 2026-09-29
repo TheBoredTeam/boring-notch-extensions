@@ -20,7 +20,7 @@ bundle; none of these packages is compiled into Boring Notch.
 
 | Package | Purpose | Availability |
 | --- | --- | --- |
-| [BoringAgent](packages/boring-agent) | A multi-agent Progress and Usage dashboard; Claude connected, Codex and Antigravity adapters prepared | Self-signed development preview; requires a compatible Debug host |
+| [BoringAgent](packages/boring-agent) | A multi-agent Progress and Usage dashboard; Claude and Codex adapters, session messaging, and quota views | Self-signed development preview; requires a compatible Debug host |
 
 Each package owns its source, license, standalone build, tests, and release.
 Third-party publishers can use their own repositories. Store records under

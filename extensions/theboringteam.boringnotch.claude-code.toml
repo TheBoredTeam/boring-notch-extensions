@@ -4,17 +4,17 @@ slug = "boring-agent"
 name = "BoringAgent"
 icon = "https://raw.githubusercontent.com/TheBoredTeam/boring-notch-extensions/main/assets/extensions/boring-agent.png"
 tagline = "One notch dashboard for your coding agents."
-description = "A free, independent agent dashboard with Progress and Usage views, provider quota rings, native detail popovers, session search, and question alerts in regular and compact layouts. Claude Code is connected through its relay; Codex and Antigravity adapters are prepared and explicitly unavailable until implemented. Return to the originating agent to reply."
-version = "0.2.1"
+description = "A free, independent agent dashboard with Progress and Usage views, provider quota rings, native detail popovers, session search, and question alerts in regular and compact layouts. Claude and Codex adapters support sessions, available quotas, and explicit messages or replies through verified live provider connections. Unsupported Desktop-only targets use an original-app handoff. Antigravity remains unavailable."
+version = "0.3.0"
 status = "preview"
 statusNote = "Self-signed development preview. Requires the native-extension Debug host with development plugins enabled. Not notarized and not installable in a production host."
 categories = ["Developer Tools", "Productivity"]
-requirements = ["macOS 14 or later", "Compatible Boring Notch native-extension Debug host", "Current Claude Code CLI; 2.1.243 or later recommended", "Explicit relay installation and relay-folder access"]
+requirements = ["macOS 14 or later", "Compatible Boring Notch native-extension Debug host", "Current Claude Code CLI or compatible Codex app-server", "Explicit relay installation and relay-folder access"]
 websiteUrl = "https://github.com/TheBoredTeam/boring-notch-extensions/tree/main/packages/boring-agent"
 sourceUrl = "https://github.com/TheBoredTeam/boring-notch-extensions/tree/main/packages/boring-agent"
 supportUrl = "https://github.com/TheBoredTeam/boring-notch-extensions/issues"
-privacy = "Reads documented hook and status-line input. Stores bounded local session metadata, questions, choices, and usage in a private relay folder. Does not read transcripts, credentials, or unrelated tool arguments. Opt-in account usage reads the default Claude Code OAuth Keychain login in the separate relay helper and sends it only to Anthropic profile/usage endpoints. Tokens are never stored, refreshed, or exposed to the host. No analytics, browser cookies, or transcript reading. Question text can contain sensitive project information."
-installSteps = ["Read the package README and download its development ZIP from GitHub Releases.", "Install in a compatible Debug host through Settings → Extensions.", "Copy and run the bundled relay setup command, then select the printed relay folder in extension settings.", "Open the Agents tab. Current local Claude Code sessions reload hooks and appear after their next supported event."]
+privacy = "Reads documented hook and status-line input. Stores bounded local session metadata, questions, choices, and usage in a private relay folder. Does not read transcripts or unrelated tool arguments. Explicit prompt and answer commands are briefly stored in a private bounded queue, consumed once, and never logged. Codex owns its account credentials and exposes only sanitized limits. Opt-in account usage reads the default Claude Code OAuth Keychain login in the separate relay helper and sends it only to Anthropic profile/usage endpoints. Tokens are never stored, refreshed, or exposed to the host. No analytics, browser cookies, or transcript reading. Question text can contain sensitive project information."
+installSteps = ["Read the package README and download its development ZIP from GitHub Releases.", "Install in a compatible Debug host through Settings → Extensions.", "Copy and run each provider's relay setup command, then select its printed relay folder in extension settings.", "Open the Agents tab. Claude sessions appear after a supported hook event; Codex sessions use an existing app-server control endpoint.", "Follow the session-control guide to enable Claude question replies, connect an interactive Claude Channel, or connect a Codex subscription account for usage."]
 
 [developer]
 name = "TheBoredTeam"
@@ -31,7 +31,7 @@ description = "Shared Progress and Usage views adapt to the host's regular and c
 
 [[features]]
 title = "Questions where you can see them"
-description = "An aggregate activity calls attention to questions and permissions. Open the original terminal or an existing Remote Control link when available. Desktop can only be activated as an app."
+description = "An aggregate activity calls attention to questions. Supported sessions offer a native Message or Reply composer with per-session drafts and delivery receipts. Tool permissions remain in the original agent."
 
 [[features]]
 title = "Usage without guessing"

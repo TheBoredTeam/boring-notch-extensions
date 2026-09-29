@@ -17,7 +17,7 @@ struct BridgeMain {
         do {
             var index = 1
             while index < arguments.count {
-                if ["--data-dir", "--settings"].contains(arguments[index]) {
+                if ["--data-dir", "--settings", "--codex-socket", "--codex-executable"].contains(arguments[index]) {
                     guard arguments.indices.contains(index + 1), !arguments[index + 1].hasPrefix("--") else { throw ClaudeStorageError.invalidRecord }
                     index += 2
                 } else if ["--no-launch-agent", "--once", "--no-ui"].contains(arguments[index]) { index += 1 }
@@ -26,7 +26,37 @@ struct BridgeMain {
             switch subcommand {
             case "hook":
                 let bytes = try readInput()
-                try? ClaudeRelay.ingest(bytes, directory: directory, origin: ClaudeOriginResolver.capture())
+                let origin = ClaudeOriginResolver.capture()
+                try? ClaudeRelay.ingest(bytes, directory: directory, origin: origin)
+                try? ClaudeMessagingStorage.noteHook(input: bytes, directory: directory, origin: origin)
+            case "question":
+                try ClaudeQuestionBridge.run(input: readInput(), directory: directory, origin: ClaudeOriginResolver.capture())
+            case "channel":
+                try ClaudeChannel.run(directory: directory)
+            case "channel-setup":
+                guard let executable = Bundle.main.executableURL else { throw ClaudeStorageError.io }
+                let command = try AgentBridgeInstaller.channelSetup(executable: executable, directory: directory)
+                print("Development channel prepared. Start a NEW Claude CLI session with:\n\(command)\nReview Claude's channel and MCP confirmations yourself. Existing sessions are unchanged. BoringAgent enables prompting only after Claude acknowledges this channel; some Claude accounts/builds may not support it.")
+            case "codex-install":
+                guard let executable = Bundle.main.executableURL else { throw ClaudeStorageError.io }
+                try AgentBridgeInstaller.installCodex(executable: executable, directory: directory,
+                    endpoint: option("--codex-socket").map { URL(fileURLWithPath: $0) },
+                    accountExecutable: option("--codex-executable").map { URL(fileURLWithPath: $0) },
+                    launch: !arguments.contains("--no-launch-agent"))
+                print("Codex relay installed. Choose this folder in BoringAgent's Codex settings:\n\(directory.path)\nThe relay connects to your existing local Codex app-server and reads usage through your existing CLI sign-in. Private Desktop-only sessions may not expose control. API-key logins have no ChatGPT subscription quota.")
+            case "codex-uninstall":
+                try AgentBridgeInstaller.uninstallCodex(directory: directory)
+                print("Codex relay stopped and removed. Private relay records remain in \(directory.path).")
+            case "codex-login-usage":
+                try CodexAccountSetup.login(executable: option("--codex-executable").map { URL(fileURLWithPath: $0) }, directory: directory)
+            case "codex-logout-usage":
+                try CodexAccountSetup.logout(executable: option("--codex-executable").map { URL(fileURLWithPath: $0) }, directory: directory)
+            case "codex-serve":
+                let codex = CodexBridgeService(directory: directory,
+                    endpoint: option("--codex-socket").map { URL(fileURLWithPath: $0) },
+                    accountExecutable: option("--codex-executable").map { URL(fileURLWithPath: $0) })
+                try codex.start()
+                withExtendedLifetime(codex) { RunLoop.main.run() }
             case "statusline":
                 let forwarder = try ClaudeStatuslineForwarder(command: ClaudeInstaller.originalStatusCommand(directory: directory))
                 var boundedInput: Data? = Data()
@@ -66,14 +96,22 @@ struct BridgeMain {
                 }
             case "help", "--help", "-h":
                 print("""
-                boring-claude-bridge hook|statusline|install|uninstall|serve
+                boring-claude-bridge install|uninstall|serve|codex-install|codex-uninstall|codex-serve|channel-setup
+                boring-claude-bridge codex-login-usage|codex-logout-usage
                   --data-dir PATH       Private relay folder (select the same folder in the extension)
                   --settings PATH       Claude settings.json, used by install/uninstall
                   --no-launch-agent     Install hooks without starting a login broker
                   --once --no-ui        Process one broker batch without opening apps (testing)
+                  --codex-socket PATH   Existing local Codex app-server control socket
+                  --codex-executable PATH  Official Codex CLI for account-read-only broker
+
+                Codex usage sign-in is an explicit official device-login flow. Its separate account
+                home preserves your existing Codex login, provider and sessions.
+                The background account reader never starts login or switches a session's provider.
 
                 Install/uninstall run only when you explicitly invoke them. Prompts and unrelated tool
-                arguments are discarded; transcripts are never opened. Hooks never reply. Account usage
+                arguments are discarded; transcripts are never opened. Inline Claude question replies
+                require the separate opt-in in BoringAgent settings and a live connected host. Account usage
                 is separate: only after Connect usage, the broker reads the Claude Code Keychain login
                 and fetches plan limits from Anthropic. It never stores or refreshes your credentials.
                 """)
@@ -81,7 +119,7 @@ struct BridgeMain {
             }
         } catch {
             // Observational hooks must not leak input or interfere with the user's Claude session.
-            if subcommand == "hook" || subcommand == "statusline" { exit(0) }
+            if ["hook", "statusline", "question"].contains(subcommand) { exit(0) }
             FileHandle.standardError.write(Data((error.localizedDescription + "\n").utf8))
             exit(1)
         }

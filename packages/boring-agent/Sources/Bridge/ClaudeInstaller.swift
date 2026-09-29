@@ -46,15 +46,9 @@ enum ClaudeInstaller {
                 if let ownerSettings = state["settingsPath"] as? String, ownerSettings != settings.standardizedFileURL.path {
                     throw ClaudeStorageError.invalidRecord
                 }
-                let bin = directory.appendingPathComponent("bin")
-                try ClaudeStorage.ensureDirectory(bin)
-                let helper = bin.appendingPathComponent("boring-claude-bridge")
-                if executable.standardizedFileURL != helper.standardizedFileURL {
-                    let bytes = try ClaudeStorage.read(executable, limit: 40_000_000)
-                    try ClaudeStorage.atomicWrite(bytes, to: helper, limit: 40_000_000)
-                    guard chmod(helper.path, 0o700) == 0 else { throw ClaudeStorageError.io }
-                }
+                let helper = try AgentBridgeInstaller.stableHelper(executable: executable, directory: directory)
                 let hookCommand = command(helper: helper, mode: "hook", directory: directory)
+                let questionCommand = command(helper: helper, mode: "question", directory: directory)
                 let statusCommand = command(helper: helper, mode: "statusline", directory: directory)
                 if state["schemaVersion"] == nil {
                     state["originalHadHooks"] = configuration["hooks"] != nil
@@ -86,6 +80,13 @@ enum ClaudeInstaller {
                     if !exists { groups.append(["hooks": [["type": "command", "command": hookCommand, "timeout": 2]]]) }
                     hooks[event] = groups
                 }
+                var questionGroups = hooks["PreToolUse"] as? [[String: Any]] ?? []
+                if !questionGroups.contains(where: { group in
+                    (group["hooks"] as? [[String: Any]] ?? []).contains { $0["command"] as? String == questionCommand }
+                }) {
+                    questionGroups.append(["matcher": "AskUserQuestion", "hooks": [["type": "command", "command": questionCommand, "timeout": 95]]])
+                }
+                hooks["PreToolUse"] = questionGroups
                 configuration["hooks"] = hooks
                 var status = (configuration["statusLine"] as? [String: Any]) ?? ["type": "command"]
                 status["command"] = statusCommand
@@ -93,6 +94,7 @@ enum ClaudeInstaller {
                 state["schemaVersion"] = 1
                 state["settingsPath"] = settings.standardizedFileURL.path
                 state["hookCommand"] = hookCommand
+                state["questionCommand"] = questionCommand
                 state["statusCommand"] = statusCommand
                 state["launchAgent"] = launchAgent || (state["launchAgent"] as? Bool ?? false)
                 if launchAgent { try validateLaunchAgent(helper: helper, directory: directory, home: home) }
@@ -120,7 +122,10 @@ enum ClaudeInstaller {
                         guard let groups = hooks[event] as? [[String: Any]] else { continue }
                         let remaining = groups.compactMap { group -> [String: Any]? in
                             guard let items = group["hooks"] as? [[String: Any]] else { return group }
-                            let kept = items.filter { $0["command"] as? String != hookCommand }
+                            let kept = items.filter { item in
+                                guard let command = item["command"] as? String else { return true }
+                                return command != hookCommand && command != state["questionCommand"] as? String
+                            }
                             if kept.count == items.count { return group }
                             if kept.isEmpty { return nil }
                             var copy = group; copy["hooks"] = kept; return copy
