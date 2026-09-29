@@ -32,3 +32,8 @@ package's original source code.** This exclusion covers both PNG files above.
 Rights in the logo remain with its owner.
 This repository does not grant an additional copyright or trademark license for
 the logo; further use must respect the owner's rights and applicable terms.
+
+The BoringAgent provider UI may display application icons resolved at runtime by
+macOS for an installed provider app. Those icons remain their owners' marks;
+the extension does not redistribute copies of the Codex or Antigravity icons.
+The BoringAgent catalog artwork is original project artwork.

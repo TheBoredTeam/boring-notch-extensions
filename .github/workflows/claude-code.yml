@@ -1,11 +1,11 @@
-name: Claude Code development extension
+name: BoringAgent development extension
 
 on:
   pull_request:
-    paths: ["packages/claude-code/**", ".github/workflows/claude-code.yml"]
+    paths: ["packages/boring-agent/**", ".github/workflows/claude-code.yml"]
   push:
     branches: [main]
-    paths: ["packages/claude-code/**", ".github/workflows/claude-code.yml"]
+    paths: ["packages/boring-agent/**", ".github/workflows/claude-code.yml"]
   workflow_dispatch:
     inputs:
       publish:
@@ -27,10 +27,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build both architectures without release credentials
-        working-directory: packages/claude-code
+        working-directory: packages/boring-agent
         run: bash build.sh --configuration debug --architecture universal
       - name: Relay, native ABI, lifecycle, and 1,000-session stress tests
-        working-directory: packages/claude-code
+        working-directory: packages/boring-agent
         run: bash scripts/test.sh dist/theboringteam.boringnotch.claude-code.bnplugin
 
   publish:
@@ -108,15 +108,15 @@ jobs:
           codesign --force --sign "$SIGNING_IDENTITY" --keychain "$RUNNER_TEMP/claude-code-signing.keychain-db" --options runtime --timestamp=none "$RUNNER_TEMP/claude-code-signing-probe"
           codesign --verify --strict "$RUNNER_TEMP/claude-code-signing-probe"
       - name: Build and verify the signed universal preview
-        working-directory: packages/claude-code
+        working-directory: packages/boring-agent
         env:
           SIGNING_IDENTITY: ${{ secrets.CLAUDE_CODE_SIGNING_IDENTITY }}
         run: bash build.sh --configuration debug --architecture universal --identity "$SIGNING_IDENTITY" --keychain "$RUNNER_TEMP/claude-code-signing.keychain-db"
       - name: Test the signed artifact
-        working-directory: packages/claude-code
+        working-directory: packages/boring-agent
         run: bash scripts/test.sh dist/theboringteam.boringnotch.claude-code.bnplugin
       - name: Publish immutable development prerelease
-        working-directory: packages/claude-code
+        working-directory: packages/boring-agent
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -124,8 +124,8 @@ jobs:
           set -euo pipefail
           test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA"
           version="$(python3 -c 'import json; print(json.load(open("manifest.json"))["version"])')"
-          tag="claude-code-v${version}-dev.1"
-          archive="ClaudeCode-${version}-development.zip"
+          tag="boring-agent-v${version}-dev.1"
+          archive="BoringAgent-${version}-development.zip"
           (cd dist && shasum -a 256 "$archive" > SHA256SUMS)
           if git ls-remote --exit-code origin "refs/tags/$tag" >/dev/null 2>&1; then
             git fetch --no-tags origin "refs/tags/$tag:refs/tags/$tag"
@@ -134,7 +134,7 @@ jobs:
             git tag "$tag" "$GITHUB_SHA"
             git push origin "refs/tags/$tag"
           fi
-          gh release create "$tag" "dist/$archive" dist/SHA256SUMS --verify-tag --prerelease --title "Claude Code ${version} — development preview" --notes-file RELEASE.md
+          gh release create "$tag" "dist/$archive" dist/SHA256SUMS --verify-tag --prerelease --title "BoringAgent ${version} — development preview" --notes-file RELEASE.md
       - name: Remove temporary signing material
         if: always()
         timeout-minutes: 1

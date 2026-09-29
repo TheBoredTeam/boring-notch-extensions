@@ -40,7 +40,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix=".claude-build-", dir=output) as temporary:
         stage = Path(temporary)
         bundle = stage / (manifest["id"] + ".bnplugin")
-        executable = bundle / "Contents/MacOS/ClaudeCode"
+        executable = bundle / "Contents/MacOS/BoringAgent"
         helper = bundle / "Contents/Helpers/boring-claude-bridge"
         resources = bundle / "Contents/Resources"
         for folder in [executable.parent, helper.parent, resources]:
@@ -67,7 +67,7 @@ def main() -> None:
                 flags += ["-D", "DEBUG"]
             plugin_slice = stage / f"plugin-{architecture}"
             helper_slice = stage / f"bridge-{architecture}"
-            run("xcrun", "swiftc", *flags, "-emit-library", "-module-name", "BoringClaudeCode",
+            run("xcrun", "swiftc", *flags, "-emit-library", "-module-name", "BoringAgent",
                 *map(str, shared + plugin), "-o", str(plugin_slice))
             run("xcrun", "swiftc", *flags, "-parse-as-library", "-module-name", "BoringClaudeBridge",
                 *map(str, shared + bridge), "-Xlinker", "-sectcreate", "-Xlinker", "__TEXT",
@@ -82,7 +82,7 @@ def main() -> None:
         (bundle / "Contents/Info.plist").write_bytes(plistlib.dumps({
             "CFBundleIdentifier": manifest["id"], "CFBundleName": manifest["name"],
             "CFBundleExecutable": executable.name, "CFBundlePackageType": "BNDL",
-            "CFBundleShortVersionString": manifest["version"], "CFBundleVersion": "1",
+            "CFBundleShortVersionString": manifest["version"], "CFBundleVersion": "2",
             "LSMinimumSystemVersion": "14.0",
         }))
         shutil.copyfile(ROOT / "manifest.json", resources / "manifest.json")
@@ -101,7 +101,7 @@ def main() -> None:
         run("codesign", *signing, "--timestamp=none", str(bundle))
         run("codesign", "--verify", "--deep", "--strict", "--all-architectures", str(bundle))
         label = "development" if args.configuration == "debug" else "release-candidate"
-        archive_name = f"ClaudeCode-{manifest['version']}-{label}.zip"
+        archive_name = f"BoringAgent-{manifest['version']}-{label}.zip"
         archive = stage / archive_name
         run("ditto", "-c", "-k", "--keepParent", str(bundle), str(archive))
         final_bundle = output / bundle.name

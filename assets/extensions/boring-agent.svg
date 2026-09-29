@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-label="BoringAgent">
+  <rect width="128" height="128" rx="30" fill="#17191d"/>
+  <rect x="24" y="27" width="65" height="50" rx="12" fill="none" stroke="#777e8a" stroke-width="5"/>
+  <rect x="39" y="48" width="65" height="50" rx="12" fill="#17191d" stroke="#f1f2f4" stroke-width="5"/>
+  <path d="m54 63 10 9-10 9m21 0h12" fill="none" stroke="#f1f2f4" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
