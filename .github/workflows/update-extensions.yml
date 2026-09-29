@@ -27,7 +27,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: python
         run: |
-          import glob, hashlib, json, os, subprocess, sys, urllib.request
+          import glob, hashlib, json, os, re, subprocess, sys, urllib.request
 
           def api(url):
               req = urllib.request.Request(url, headers={
@@ -76,11 +76,36 @@ jobs:
 
           def version_key(v):
               # Numeric-aware ordering: 1.10.0 > 1.9.0.
-              return [int(p) if p.isdigit() else p for p in v.lstrip("v").split(".")]
+              return [int(p) if p.isdigit() else 0 for p in v.split(".")]
+
+          def tag_version(tag):
+              # Release tags here are `packs-v1.0.2`, not bare versions.
+              # `lstrip("v")` only removes leading "v" characters, so it left
+              # "packs-v1" as the first component, and comparing that against
+              # the record's integer version raised TypeError on every run --
+              # the automation had never once succeeded for these tags.
+              # Taking the trailing dotted number is what both the comparison
+              # and the record's own `version` field want.
+              m = re.search(r"\d+(?:\.\d+)*$", tag)
+              return m.group(0) if m else "0.0.0"
 
           def sha256_of(url):
               with urllib.request.urlopen(url, timeout=300) as resp:
                   return hashlib.sha256(resp.read()).hexdigest()
+
+          # Defined above the loop: it is called from inside it, and a def
+          # further down the file is not bound until the module has run past it.
+          def _replace(text, key, value, section=None):
+              # Replace `key = "..."` inside the given section only.
+              # Both branches need MULTILINE: every record opens with a
+              # comment, so `^` without it only ever matched at offset 0, and a
+              # top-level `version` line was silently never rewritten -- the
+              # record kept its old version while its url and sha256 moved on.
+              pattern = re.compile(
+                  r'(?m)^(%s\s*=\s*")[^"]*(")' % re.escape(key) if section is None
+                  else r'(?ms)^(%s\s*=\s*")[^"]*(")' % re.escape(key)
+              )
+              return pattern.sub(rf"\g<1>{value}\g<2>", text, count=1)
 
           def run(*args):
               return subprocess.run(args, check=True, capture_output=True, text=True).stdout.strip()
@@ -111,16 +136,22 @@ jobs:
               candidates = [r for r in releases if r.get("tag_name") and not r["draft"] and not r["prerelease"]]
               if not candidates:
                   continue
-              latest = max(candidates, key=lambda r: version_key(r["tag_name"]))
+              latest = max(candidates, key=lambda r: version_key(tag_version(r["tag_name"])))
               tag = latest["tag_name"]
-              if version_key(tag) <= version_key(current):
+              if version_key(tag_version(tag)) <= version_key(current):
                   print(f"{pack_id}: up to date at {current}")
                   continue
 
-              # The first .zip asset is the package, by convention.
-              assets = [a for a in latest.get("assets", []) if a["name"].endswith(".zip")]
+              # Match the asset to the pack. Taking "the first .zip" pointed
+              # every record in a multi-pack release at whichever sorted first:
+              # the hash still matched the URL, so validation passed and the
+              # store then installed the wrong extension. A pack is `<id>.zip`;
+              # anything else is a release this automation cannot read.
+              pack_name = pack_id.split(".")[-1]
+              wanted = f"{pack_name}.zip"
+              assets = [a for a in latest.get("assets", []) if a["name"] == wanted]
               if not assets:
-                  print(f"::warning::{pack_id}: release {tag} has no .zip asset")
+                  print(f"::warning::{pack_id}: release {tag} has no {wanted}")
                   continue
               asset = assets[0]
 
@@ -148,7 +179,7 @@ jobs:
               run("git", "checkout", "-b", branch)
 
               new_record = record
-              new_record = _replace(new_record, "version", tag.lstrip("v"))
+              new_record = _replace(new_record, "version", tag_version(tag))
               new_record = _replace(new_record, "url", asset["browser_download_url"], section="release")
               new_record = _replace(new_record, "sha256", sha, section="release")
               open(path, "w", encoding="utf-8").write(new_record)
@@ -167,10 +198,3 @@ jobs:
 
           print(f"filed {updated} update PR(s)")
 
-          def _replace(text, key, value, section=None):
-              # Replace `key = "..."` inside the given section only.
-              pattern = re.compile(
-                  r'(^%s\s*=\s*")[^"]*(")' % re.escape(key) if section is None
-                  else r'(?ms)^(%s\s*=\s*")[^"]*(")' % re.escape(key)
-              )
-              return pattern.sub(rf"\g<1>{value}\g<2>", text, count=1)
