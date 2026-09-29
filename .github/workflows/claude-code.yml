@@ -46,11 +46,11 @@ jobs:
         shell: bash
         run: test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA"
       - name: Import only the extension's self-signed identity
+        timeout-minutes: 2
         shell: bash
         env:
           SIGNING_P12: ${{ secrets.CLAUDE_CODE_SIGNING_P12 }}
           SIGNING_PASSWORD: ${{ secrets.CLAUDE_CODE_SIGNING_PASSWORD }}
-          SIGNING_IDENTITY: ${{ secrets.CLAUDE_CODE_SIGNING_IDENTITY }}
         run: |
           set -euo pipefail
           umask 077
@@ -67,17 +67,26 @@ jobs:
           PY
           security import "$RUNNER_TEMP/claude-code-signing.p12" -k "$keychain" -P "$SIGNING_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
+          rm -f "$RUNNER_TEMP/claude-code-signing.p12"
+      - name: Trust only the preview certificate for code signing on this runner
+        timeout-minutes: 1
+        shell: bash
+        env:
+          SIGNING_IDENTITY: ${{ secrets.CLAUDE_CODE_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/claude-code-signing.keychain-db"
           # The P12 has exactly one self-signed identity. Trust only its public
-          # certificate for code signing in this disposable runner's user domain.
+          # certificate for code signing in this disposable runner. The admin
+          # trust domain avoids an interactive user-authorization dialog on CI.
           security find-certificate -a -p "$keychain" > "$RUNNER_TEMP/claude-code-public.pem"
-          security add-trusted-cert -r trustRoot -p codeSign -k "$keychain" "$RUNNER_TEMP/claude-code-public.pem"
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k "$keychain" "$RUNNER_TEMP/claude-code-public.pem"
           python3 - <<'PY'
           import os, subprocess
           identities = subprocess.check_output(['security', 'find-identity', '-v', '-p', 'codesigning', os.environ['RUNNER_TEMP'] + '/claude-code-signing.keychain-db'], text=True)
           if os.environ['SIGNING_IDENTITY'] not in identities:
               raise SystemExit('Expected signing identity is not valid for code signing')
           PY
-          rm -f "$RUNNER_TEMP/claude-code-signing.p12"
       - name: Build and verify the signed universal preview
         working-directory: packages/claude-code
         env:
@@ -108,8 +117,9 @@ jobs:
           gh release create "$tag" "dist/$archive" dist/SHA256SUMS --verify-tag --prerelease --title "Claude Code ${version} — development preview" --notes-file RELEASE.md
       - name: Remove temporary signing material
         if: always()
+        timeout-minutes: 1
         shell: bash
         run: |
-          security remove-trusted-cert "$RUNNER_TEMP/claude-code-public.pem" 2>/dev/null || true
+          sudo security remove-trusted-cert -d "$RUNNER_TEMP/claude-code-public.pem" 2>/dev/null || true
           security delete-keychain "$RUNNER_TEMP/claude-code-signing.keychain-db" 2>/dev/null || true
           rm -f "$RUNNER_TEMP/claude-code-signing.p12" "$RUNNER_TEMP/claude-code-public.pem"
