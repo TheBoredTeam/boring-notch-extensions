@@ -57,34 +57,34 @@
         "Developer Tools",
         "Productivity"
       ],
-      "description": "A free, independently built native extension with a searchable session list, regular and compact layouts, question alerts, and documented five-hour, seven-day, and context usage. Return to Claude to answer; the extension never approves tools or sends replies.",
+      "description": "A free, independent agent dashboard with Progress and Usage views, provider quota rings, native detail popovers, session search, and question alerts in regular and compact layouts. Claude Code is connected through its relay; Codex and Antigravity adapters are prepared and explicitly unavailable until implemented. Return to the originating agent to reply.",
       "developer": {
         "name": "TheBoredTeam",
         "url": "https://github.com/TheBoredTeam"
       },
       "features": [
         {
-          "description": "Search sessions and filter unanswered questions. Compact mode keeps the selected session and essential actions inside the host's bounds.",
-          "title": "One tab, many sessions"
+          "description": "Shared Progress and Usage views adapt to the host's regular and compact bounds. Provider adapters keep feature logic separate from reusable interface components.",
+          "title": "One dashboard, multiple agents"
         },
         {
           "description": "An aggregate activity calls attention to questions and permissions. Open the original terminal or an existing Remote Control link when available. Desktop can only be activated as an app.",
           "title": "Questions where you can see them"
         },
         {
-          "description": "Separates subscription allowance from context capacity. Missing or stale usage stays clearly labeled.",
+          "description": "Provider rings show remaining allowance, with individual quota windows and reset times in a native popover. Missing and stale reports stay labeled; session context is separate.",
           "title": "Usage without guessing"
         }
       ],
-      "icon": "https://raw.githubusercontent.com/TheBoredTeam/boring-notch-extensions/main/assets/extensions/claude-code.png",
+      "icon": "https://raw.githubusercontent.com/TheBoredTeam/boring-notch-extensions/main/assets/extensions/boring-agent.png",
       "id": "theboringteam.boringnotch.claude-code",
       "installSteps": [
         "Read the package README and download its development ZIP from GitHub Releases.",
         "Install in a compatible Debug host through Settings → Extensions.",
         "Copy and run the bundled relay setup command, then select the printed relay folder in extension settings.",
-        "Restart Claude sessions so the hooks and status line take effect."
+        "Open the Agents tab. Current local Claude Code sessions reload hooks and appear after their next supported event."
       ],
-      "name": "Claude Code",
+      "name": "BoringAgent",
       "price": {
         "amount": 0,
         "billing": "free",
@@ -97,14 +97,14 @@
         "Current Claude Code CLI; 2.1.243 or later recommended",
         "Explicit relay installation and relay-folder access"
       ],
-      "slug": "claude-code",
-      "sourceUrl": "https://github.com/TheBoredTeam/boring-notch-extensions/tree/main/packages/claude-code",
+      "slug": "boring-agent",
+      "sourceUrl": "https://github.com/TheBoredTeam/boring-notch-extensions/tree/main/packages/boring-agent",
       "status": "preview",
       "statusNote": "Self-signed development preview. Requires the native-extension Debug host with development plugins enabled. Not notarized and not installable in a production host.",
       "supportUrl": "https://github.com/TheBoredTeam/boring-notch-extensions/issues",
-      "tagline": "Keep your Claude sessions and questions in view.",
-      "version": "0.1.0",
-      "websiteUrl": "https://github.com/TheBoredTeam/boring-notch-extensions/tree/main/packages/claude-code"
+      "tagline": "One notch dashboard for your coding agents.",
+      "version": "0.2.0",
+      "websiteUrl": "https://github.com/TheBoredTeam/boring-notch-extensions/tree/main/packages/boring-agent"
     },
     {
       "artwork": "assets/extensions/lock-screen-preview.svg",
