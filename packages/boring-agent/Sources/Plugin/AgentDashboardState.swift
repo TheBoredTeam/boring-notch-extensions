@@ -25,6 +25,8 @@ final class AgentDashboardState: ObservableObject {
     @Published var query = "" { didSet { if query != oldValue { filterSessions() } } }
     @Published var waitingOnly = false { didSet { if waitingOnly != oldValue { filterSessions() } } }
     @Published var compactSearch = false
+    @Published private var messageDrafts: [String: AgentMessageDraft] = [:]
+    @Published private var messageStatuses: [String: AgentMessageStatus] = [:]
 
     var activitiesChanged: (() -> Void)?
 
@@ -148,6 +150,8 @@ final class AgentDashboardState: ObservableObject {
         let bounded = Array(ranked.prefix(Self.maximumSessions))
         if sessions != bounded { sessions = bounded }
         byID = Dictionary(bounded.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        messageStatuses = messageStatuses.filter { byID[$0.key] != nil }
+        messageDrafts = messageDrafts.filter { byID[$0.key] != nil }
         searchText = Dictionary(bounded.map { session in
             let providerName = snapshotsByID[session.providerID]?.descriptor.title ?? session.providerID
             return (session.id, [providerName, session.project, session.directory, session.nativeID,
@@ -202,7 +206,8 @@ final class AgentDashboardState: ObservableObject {
     }
 
     func isStale(_ session: AgentSession) -> Bool {
-        session.phase != .ended && now.timeIntervalSince1970 - session.updatedAt > 600
+        session.phase != .ended && session.control?.hasLiveLease(at: now) != true &&
+            now.timeIntervalSince1970 - session.updatedAt > 600
     }
 
     func statusLabel(_ session: AgentSession) -> String {
@@ -266,6 +271,109 @@ final class AgentDashboardState: ObservableObject {
     func openOriginApp(_ session: AgentSession) { perform(session) { $0.openOriginApp(nativeID: $1) } }
     func copyResumeCommand(_ session: AgentSession) { perform(session) { $0.copyResumeCommand(nativeID: $1) } }
 
+    func draft(for sessionID: String) -> AgentMessageDraft {
+        if let draft = messageDrafts[sessionID] { return draft }
+        let control = byID[sessionID]?.control
+        return AgentMessageDraft(revision: control?.revision ?? "", requestID: control?.request?.id)
+    }
+
+    func setDraftText(_ text: String, for sessionID: String) {
+        guard isActive, byID[sessionID] != nil, messageStatuses[sessionID]?.pending != true else { return }
+        var value = draft(for: sessionID)
+        value.text = text
+        storeDraft(value, for: sessionID)
+    }
+
+    func setDraftAnswers(_ answers: [String: [String]], for sessionID: String) {
+        guard isActive, byID[sessionID] != nil, messageStatuses[sessionID]?.pending != true else { return }
+        var value = draft(for: sessionID)
+        value.answers = answers
+        storeDraft(value, for: sessionID)
+    }
+
+    /// Explicitly review the current target after a turn/question changes.
+    /// Keep a prompt draft, but never carry answers onto a different request.
+    func refreshDraft(for sessionID: String) {
+        guard isActive, let control = byID[sessionID]?.control,
+              messageStatuses[sessionID]?.pending != true else { return }
+        var value = draft(for: sessionID)
+        if value.requestID != control.request?.id { value.answers = [:] }
+        value.revision = control.revision
+        value.requestID = control.request?.id
+        storeDraft(value, for: sessionID)
+        messageStatuses[sessionID] = nil
+    }
+
+    private func storeDraft(_ draft: AgentMessageDraft, for id: String) {
+        // Typing remains bounded even if a view receives a very large paste.
+        guard draft.text.utf8.count <= AgentMessageCommand.maximumTextBytes,
+              draft.answers.count <= 4,
+              draft.answers.values.flatMap({ $0 }).reduce(0, { $0 + $1.utf8.count }) <= AgentMessageCommand.maximumTextBytes else { return }
+        if messageDrafts[id] == nil, messageDrafts.count >= 64,
+           let evict = messageDrafts.keys.sorted().first(where: { messageStatuses[$0]?.pending != true && $0 != selectedID }) {
+            messageDrafts[evict] = nil
+        }
+        messageDrafts[id] = draft
+    }
+
+    func messageStatus(for sessionID: String) -> AgentMessageStatus? { messageStatuses[sessionID] }
+
+    /// The session can move to another question before a receipt arrives. Keep
+    /// that delivery history for the dashboard, but never present it as the
+    /// result of the different draft or request now shown by the composer.
+    func currentMessageStatus(for sessionID: String) -> AgentMessageStatus? {
+        guard let control = byID[sessionID]?.control, let status = messageStatuses[sessionID],
+              status.revision == control.revision, status.requestID == control.request?.id else { return nil }
+        let draft = draft(for: sessionID)
+        guard draft.revision == control.revision, draft.requestID == control.request?.id else { return nil }
+        return status
+    }
+
+    private func command(for sessionID: String) -> AgentMessageCommand? {
+        guard isActive, let session = byID[sessionID], let control = session.control,
+              session.phase != .ended,
+              snapshotsByID[session.providerID]?.connection.isConnected == true,
+              !isStale(session), messageStatuses[sessionID]?.pending != true else { return nil }
+        let draft = draft(for: sessionID)
+        let value = AgentMessageCommand(providerID: session.providerID, sessionID: session.nativeID,
+            revision: draft.revision, createdAt: clockSource().timeIntervalSince1970,
+            text: draft.requestID == nil ? draft.text : nil,
+            answers: draft.requestID == nil ? [:] : draft.answers, requestID: draft.requestID)
+        return value.matches(control, now: clockSource()) ? value : nil
+    }
+
+    func canSendDraft(for sessionID: String) -> Bool { command(for: sessionID) != nil }
+
+    func sendDraft(for sessionID: String) {
+        guard let command = command(for: sessionID), let adapter = adaptersByID[command.providerID] else { return }
+        let sentDraft = draft(for: sessionID)
+        let lifetime = generation
+        messageStatuses[sessionID] = AgentMessageStatus(commandID: command.id,
+            revision: command.revision, requestID: command.requestID, pending: true, message: "Sending…")
+        adapter.sendMessage(command) { [weak self] receipt in
+            guard let self, self.isActive, self.generation == lifetime,
+                  receipt.isValid, receipt.state != .pending,
+                  receipt.id == command.id, receipt.sessionID == command.sessionID,
+                  self.messageStatuses[sessionID]?.commandID == command.id,
+                  self.messageStatuses[sessionID]?.pending == true else { return }
+            self.messageStatuses[sessionID] = AgentMessageStatus(commandID: command.id,
+                revision: command.revision, requestID: command.requestID, pending: false,
+                delivery: receipt.state, message: receipt.message)
+            if receipt.state == .accepted, self.messageDrafts[sessionID] == sentDraft {
+                self.messageDrafts[sessionID] = nil
+            }
+        }
+        // Lost replies are ambiguous. Never retry or clear the user's draft.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 35) { [weak self] in
+            guard let self, self.isActive, self.generation == lifetime,
+                  self.messageStatuses[sessionID]?.commandID == command.id,
+                  self.messageStatuses[sessionID]?.pending == true else { return }
+            self.messageStatuses[sessionID] = AgentMessageStatus(commandID: command.id,
+                revision: command.revision, requestID: command.requestID, pending: false,
+                delivery: .unknown, message: "Delivery could not be confirmed. Check the session before sending again.")
+        }
+    }
+
     func refresh(providerID: String? = nil) {
         guard isActive else { return }
         updateClock(clockSource())
@@ -278,6 +386,12 @@ final class AgentDashboardState: ObservableObject {
     func connectProvider(_ id: String) { configureProvider(id) { $0.connect() } }
     func disconnectProvider(_ id: String) { configureProvider(id) { $0.disconnect() } }
     func copySetupCommand(providerID: String) { configureProvider(providerID) { $0.copySetupCommand() } }
+    func copyMessagingSetupCommand(providerID: String) { configureProvider(providerID) { $0.copyMessagingSetupCommand() } }
+    func copyUsageSignInCommand(providerID: String) -> Bool {
+        guard isActive, let adapter = adaptersByID[providerID],
+              snapshotsByID[providerID]?.usageAccount?.signInCommand != nil else { return false }
+        return adapter.copyUsageSignInCommand()
+    }
 
     func connectUsage(providerID: String) {
         configureUsage(providerID) { $0.connectUsage() }
@@ -287,10 +401,20 @@ final class AgentDashboardState: ObservableObject {
         configureUsage(providerID) { $0.disconnectUsage() }
     }
 
+    func setInlineRepliesEnabled(_ enabled: Bool, providerID: String) {
+        guard isActive, snapshotsByID[providerID]?.inlineRepliesEnabled != nil,
+              snapshotsByID[providerID]?.connection.isConnected == true else { return }
+        configureProvider(providerID) { $0.setInlineRepliesEnabled(enabled) }
+    }
+
     func refreshUsage(providerID: String) {
         guard isActive else { return }
         updateClock(clockSource())
-        if snapshotsByID[providerID]?.usageConnection == nil {
+        if snapshotsByID[providerID]?.usageAccount != nil {
+            guard let adapter = adaptersByID[providerID], snapshotsByID[providerID]?.usageIsRefreshing != true else { return }
+            adapter.refreshUsage()
+            receiveChange(providerID: providerID)
+        } else if snapshotsByID[providerID]?.usageConnection == nil {
             refresh(providerID: providerID)
         } else {
             configureUsage(providerID) { $0.refreshUsage() }
@@ -324,6 +448,8 @@ final class AgentDashboardState: ObservableObject {
         generation = UUID()
         timer?.invalidate()
         timer = nil
+        messageDrafts.removeAll()
+        messageStatuses.removeAll()
         // Clear callbacks before stopping any provider: even a provider which
         // synchronously publishes during stop cannot reach a destroyed host.
         for adapter in adapters { adapter.onChange = nil }

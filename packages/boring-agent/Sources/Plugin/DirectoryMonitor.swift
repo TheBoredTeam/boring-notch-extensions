@@ -9,17 +9,22 @@ final class ClaudeDirectoryMonitor: @unchecked Sendable {
     private let directory: URL
     private let receive: @Sendable (Result<[ClaudeSession], Error>) -> Void
     private let receiveUsage: @Sendable (Result<ClaudeAccountUsageRecord?, Error>) -> Void
+    private let receiveConfiguration: @Sendable (Bool) -> Void
     private var sources: [DispatchSourceFileSystemObject] = []
     private var work: DispatchWorkItem?
     private var stopped = false
     private var watchingSessions = false
+    private var watchingControls = false
+    private var watchingOwners = false
 
     init(directory: URL,
          receiveUsage: @escaping @Sendable (Result<ClaudeAccountUsageRecord?, Error>) -> Void,
+         receiveConfiguration: @escaping @Sendable (Bool) -> Void = { _ in },
          receive: @escaping @Sendable (Result<[ClaudeSession], Error>) -> Void) {
         self.directory = directory
         self.receive = receive
         self.receiveUsage = receiveUsage
+        self.receiveConfiguration = receiveConfiguration
         queue.async { [self] in
             watch(directory)
             ensureSessionWatch()
@@ -64,6 +69,8 @@ final class ClaudeDirectoryMonitor: @unchecked Sendable {
                 self.sources.forEach { $0.cancel() }
                 self.sources.removeAll()
                 self.watchingSessions = false
+                self.watchingControls = false
+                self.watchingOwners = false
                 self.watch(self.directory)
             }
             self.ensureSessionWatch()
@@ -80,12 +87,19 @@ final class ClaudeDirectoryMonitor: @unchecked Sendable {
         let next = DispatchWorkItem { [weak self] in
             guard let self, !self.stopped else { return }
             self.ensureSessionWatch()
-            let result = Result { try ClaudeStorage.loadSessions(directory: self.directory) }
+            if !self.watchingControls { self.watchingControls = self.watch(self.directory.appendingPathComponent("claude-controls")) }
+            if !self.watchingOwners { self.watchingOwners = self.watch(self.directory.appendingPathComponent("claude-owners")) }
+            let result = Result { try ClaudeStorage.loadSessions(directory: self.directory).map { value in
+                var session = value
+                session.control = ClaudeMessagingStorage.control(session: value, directory: self.directory)
+                return session
+            } }
             guard !self.stopped else { return }
             self.receive(result)
             let usage = Result { try ClaudeStorage.accountUsage(directory: self.directory) }
             guard !self.stopped else { return }
             self.receiveUsage(usage)
+            self.receiveConfiguration(ClaudeMessagingStorage.questionsEnabled(directory: self.directory))
         }
         work = next
         queue.asyncAfter(deadline: .now() + .milliseconds(150), execute: next)

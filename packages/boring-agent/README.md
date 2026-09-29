@@ -5,7 +5,7 @@ One shared dashboard has **Progress** and **Usage** views, with provider adapter
 that can add agents without duplicating the interface. It ships as a separate
 `.bnplugin` ZIP; no extension source is compiled into Boring Notch.
 
-**0.2.1 is a development preview.** Self-signed or ad-hoc preview artifacts need
+**0.3.0 is a development preview.** Self-signed or ad-hoc preview artifacts need
 a compatible Debug host with explicit development-extension opt-in. They are
 not Apple-notarized production releases and will not install in a Release host
 that requires Developer ID and notarization.
@@ -20,14 +20,19 @@ that requires Developer ID and notarization.
   The dashboard section and session selection survive controller remounts.
 - One aggregate collapsed activity for recent sessions that need input. The
   host controls its priority, camera clearance, and placement.
-- Question details and available option labels in a native popover. Choose
-  **Reply in session** to return to Claude; the extension does not answer or
-  approve permissions on your behalf.
-- Claude Code is the first live adapter. Codex and Antigravity adapter slots are
-  present and explicitly unavailable until their integrations are implemented.
-  Their cards do not imply a connection or display invented percentages.
-- Five-hour and seven-day subscription allowance **when Claude supplies it**.
-  The ring uses the lowest remaining reported quota. Context remains separate.
+- A native **Message / Reply** composer, with separate drafts for each session,
+  explicit sends, structured questions, and delivery receipts. Stale questions
+  cannot receive an answer intended for an earlier turn.
+- **Claude Code:** future question replies through an opt-in hook; ordinary
+  prompts through an explicitly connected interactive CLI Channel.
+- **Codex:** loaded sessions, live turn steering, idle prompts, and question
+  replies through the existing local app-server that owns the session.
+- Session controls appear only when the provider exposes a verified live target.
+  Private Desktop-only sessions retain a clearly labeled original-app handoff.
+  Antigravity remains an unavailable adapter.
+- Claude and ChatGPT subscription allowance when their authenticated account
+  sources report it. The ring uses the lowest remaining ordinary quota window.
+  Session context and API-provider billing remain separate.
 
 This replaces the Claude Code extension in place. Its stable package ID remains
 `theboringteam.boringnotch.claude-code`, preserving installed preferences and the
@@ -40,6 +45,9 @@ tab, not one tab or controller per session. The package's stress harness uses
 1,000 synthetic sessions; its results are development evidence, not a guarantee
 that every terminal, Claude release, or machine behaves identically.
 
+See [session-control setup and limits](SESSION_CONTROL.md) and the
+[Claude messaging contract](CLAUDE_MESSAGING.md) before enabling inline input.
+
 ## Requirements and compatibility
 
 | Component | Requirement |
@@ -47,6 +55,7 @@ that every terminal, Claude release, or machine behaves identically.
 | macOS | 14 or later. |
 | Boring Notch | A host implementing the native extension ABI v1 with activities, tabs, and the additive `bn_extension_tab_view_v2` compact-layout factory. These APIs are a developer preview, not present in every released host. |
 | Claude Code | Use a current Claude Code release. Version 2.1.243 or later is the recommended feature baseline; the development environment currently has 2.1.283. Older releases may omit events, quotas, or origin metadata. |
+| Codex | A current official CLI with app-server account APIs. Live controls require an existing attachable app-server owner; ChatGPT subscription limits require a ChatGPT login. Azure/API credentials alone do not provide subscription limits. |
 | Build tools | Xcode command-line tools and Python 3.11 or later. No third-party runtime packages. |
 
 Claude's documented version milestones include context percentage in 2.1.6,
@@ -197,12 +206,64 @@ Source references: [Desktop usage semantics](https://code.claude.com/docs/en/des
 [status-line fields](https://code.claude.com/docs/en/statusline#rate-limit-usage),
 and [CodexBar's documented account integration](https://github.com/steipete/CodexBar/blob/25bba9b7fd9ce83c33053958f7366e23b2dc8a82/docs/claude.md).
 
+### Codex subscription usage
+
+Codex usage has its own account connection. The account-only official CLI process
+selects the OpenAI provider through a process-local override and removes inherited
+API-provider authentication variables. It does not edit `config.toml`, change the
+provider of a live session, or launch another owner for an existing thread. This
+lets a signed-in ChatGPT account supply subscription limits even when sessions
+use Azure or another API provider.
+
+The helper first checks BoringAgent's dedicated usage login, then the existing
+official CLI login. An authenticated dedicated account is never replaced with
+another owner's quota after a transient error. If neither source has a ChatGPT
+login, **Usage → Codex** shows **Sign in required** and a copyable command:
+
+```sh
+"$HOME/Library/Application Support/BoringClaude/bin/boring-claude-bridge" codex-login-usage
+```
+
+Use the copied command for a custom relay/helper location. Only running this
+command starts the official `codex login --device-auth` flow. Complete its browser
+challenge yourself; device authentication must be enabled in your ChatGPT account
+or workspace. No login starts in the background.
+
+The separate `CODEX_HOME` is
+`~/Library/Application Support/BoringAgent/CodexAccount`, outside the selected
+relay folder. Codex uses its documented file credential store there; its private
+authentication cache never enters the extension's report directory. BoringAgent
+does not read or copy credential contents. The existing CLI login, API keys and
+configuration stay in their original locations. See the official
+[Codex authentication guide](https://developers.openai.com/codex/auth/).
+
+Account reads run every five minutes. **Refresh** requests an actual account
+fetch, with a 30-second minimum interval and an acknowledged request ID; repeated
+clicks replace one pending request, including during an in-flight fetch. Slow account
+startup runs independently of session prompts and question replies. Login/logout
+request that same refresh. The
+ring reports ordinary ChatGPT quota windows and their reset times. Missing quota
+is not zero, specialized model buckets do not become the overall allowance, and
+Azure/API spending is not inferred from subscription percentages or token counts.
+
+To remove only BoringAgent's separate usage login:
+
+```sh
+"$HOME/Library/Application Support/BoringClaude/bin/boring-claude-bridge" codex-logout-usage
+```
+
+This calls official Codex logout only in the private usage home. The normal CLI
+login remains available as a fallback. To stop all Codex background observation
+and account reads, run the same helper with `codex-uninstall`; uninstall retains
+local reports for your review. Use `codex-logout-usage` before uninstall if you
+also want to remove the separate usage credentials.
+
 ## Disconnect, update, and uninstall
 
 **Disconnect** in extension settings revokes the UI's saved folder connection.
 It does not remove Claude hooks or stop the separately installed relay.
 
-**Disconnect usage** separately stops account fetching and clears its cached
+**Disconnect usage** for Claude separately stops account fetching and clears its cached
 quota snapshot. It never signs out of Claude or modifies Claude credentials.
 
 To remove the integration using the default relay location:
@@ -234,7 +295,7 @@ unrelated tool arguments, and writes only normalized session metadata, project
 paths, model/status, usage, bounded unanswered questions/options, and origin
 metadata needed for focus. Origin metadata can include PID/start time, app
 identity, TTY, and an existing Remote Control session ID. It never opens
-transcript files. Hook handlers never open credential stores. Only the account
+transcript files. Hook handlers never open credential stores. The Claude account
 usage helper reads the specific Claude Code Keychain item after opt-in. A pre-existing user status-line command
 continues receiving its original input.
 
@@ -244,11 +305,29 @@ bounded. Writes are atomic and serialized. At the 2,000-record limit, the oldest
 ended record can be evicted; unanswered and working sessions are not silently
 deleted to make space. Uninstall retains observations for explicit user cleanup.
 
-There is no extension analytics service. Account requests run only after the
-separate usage opt-in; their tokens never enter the native host or relay files. Opening
+There is no extension analytics service. Claude account requests require its
+separate usage opt-in. The explicitly installed Codex relay uses an account-only
+official CLI process; its read transport cannot log in, log out, or operate on
+threads. Its optional separate login is stored by Codex outside the relay folder.
+Account tokens never enter the native host or relay reports. Opening
 Remote Control intentionally opens Claude's website. Native extension code
 shares the host process and its crash fate; a bundle signature is not process
 isolation. The relay runs separately and the UI reads only the folder you chose.
+
+## Native layout and keyboard input
+The dashboard follows macOS conventions from Apple’s [layout](https://developer.apple.com/design/human-interface-guidelines/layout),
+[buttons](https://developer.apple.com/design/human-interface-guidelines/buttons), and
+[popovers](https://developer.apple.com/design/human-interface-guidelines/popovers) guidance.
+A native segmented control switches views. Related session content is grouped,
+small native controls keep their own space, and delivery details are disclosed
+from a separate status row. The content scrolls when the host supplies less height.
+
+Only an explicit Message or Reply action activates the app. The mounted composer
+requests its own visible window’s keyboard focus before selecting the editor;
+background updates and passive tab mounts do not acquire focus. Drafts survive
+dismissal. Run `bash scripts/test-composer-focus.sh` for the optional native
+keyboard integration check; it briefly activates disposable test windows and
+restores the previous app, so run it separately from other UI tests.
 
 ## Build and test
 
@@ -261,7 +340,7 @@ bash scripts/test.sh dist/theboringteam.boringnotch.claude-code.bnplugin
 
 The default build is Debug for the current architecture with an ad-hoc
 signature. Output is under ignored `dist/`, including
-`BoringAgent-0.2.1-development.zip`. To compile both architecture slices:
+`BoringAgent-0.3.0-development.zip`. To compile both architecture slices:
 
 ```sh
 ./build.sh --architecture universal

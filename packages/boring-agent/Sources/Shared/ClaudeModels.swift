@@ -40,6 +40,9 @@ struct ClaudeSession: Codable, Identifiable, Sendable {
     var toolName: String? = nil
     var usage: ClaudeUsage? = nil
     var origin: ClaudeOrigin = ClaudeOrigin()
+    // Derived by the plugin reader from a live helper lease, never trusted from
+    // a hook payload and never persisted by the observational relay.
+    var control: AgentSessionControl? = nil
 }
 
 struct ClaudeFocusRequest: Codable, Sendable {

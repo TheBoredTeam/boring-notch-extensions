@@ -90,8 +90,35 @@ struct BridgeTests {
         try expect(ClaudeOriginResolver.capture(environment: ["CLAUDE_PID": "1", "CLAUDE_CODE_BRIDGE_SESSION_ID": "session_example"]).claudePID == nil, "Foreign/system PID not accepted")
 
         try installationTests(root: root)
+        try codexInstallationTests(root: root)
         try capacityTests(root: root)
         print("Bridge tests passed: \(assertions) assertions, including 80 concurrent updates.")
+    }
+
+    static func codexInstallationTests(root: URL) throws {
+        let relay = root.appendingPathComponent("codex relay")
+        let home = root.appendingPathComponent("codex home")
+        let executable = root.appendingPathComponent("codex source helper")
+        try ClaudeStorage.atomicWrite(Data("fixture-helper".utf8), to: executable)
+        try AgentBridgeInstaller.installCodex(executable: executable, directory: relay, launch: false, home: home)
+        let agent = AgentBridgeInstaller.codexAgent(home: home)
+        try expect(!FileManager.default.fileExists(atPath: agent.path), "No-launch option creates no persistent login item")
+        let helper = relay.appendingPathComponent("bin/boring-claude-bridge")
+        try expect(FileManager.default.isExecutableFile(atPath: helper.path), "Standalone setup prepares its own stable helper")
+        try FileManager.default.createDirectory(at: agent.deletingLastPathComponent(), withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700])
+        var plist: [String: Any] = ["Label": AgentBridgeInstaller.codexLabel,
+            "ProgramArguments": ["/different/helper", "codex-serve", "--data-dir", relay.path]]
+        try ClaudeStorage.atomicWrite(PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0), to: agent)
+        try rejects("Uninstall cannot remove another executable's login item") {
+            try AgentBridgeInstaller.uninstallCodex(directory: relay, home: home, launch: false)
+        }
+        try expect(FileManager.default.fileExists(atPath: agent.path), "Rejected replacement remains intact")
+        plist["ProgramArguments"] = [helper.path, "codex-serve", "--data-dir", relay.path]
+        try ClaudeStorage.atomicWrite(PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0), to: agent)
+        try AgentBridgeInstaller.uninstallCodex(directory: relay, home: home, launch: false)
+        try expect(!FileManager.default.fileExists(atPath: agent.path), "Uninstall removes only the exact owned login item")
+        try expect(FileManager.default.fileExists(atPath: helper.path), "Uninstall preserves private helper/data for review")
     }
 
     static func installationTests(root: URL) throws {

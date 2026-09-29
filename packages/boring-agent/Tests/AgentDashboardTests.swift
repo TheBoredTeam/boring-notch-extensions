@@ -11,6 +11,8 @@ private final class FixtureAgentProvider: AgentProviderAdapter {
     var starts = 0
     var stops = 0
     var actions: [String] = []
+    var messages: [AgentMessageCommand] = []
+    var messageCompletion: (@MainActor (AgentMessageReceipt) -> Void)?
 
     init(id: String, sessions: [AgentSession] = [], usage: AgentUsageSnapshot? = nil) {
         descriptor = AgentProviderDescriptor(id: id, title: "Provider \(id)", shortName: id,
@@ -30,9 +32,13 @@ private final class FixtureAgentProvider: AgentProviderAdapter {
     func openOriginApp(nativeID: String) { actions.append("origin:\(nativeID)") }
     func copyResumeCommand(nativeID: String) { actions.append("resume:\(nativeID)") }
     func copySetupCommand() { actions.append("setup") }
+    func copyUsageSignInCommand() -> Bool { actions.append("usage-signin-copy"); return true }
     func connectUsage() { actions.append("usage-connect") }
     func disconnectUsage() { actions.append("usage-disconnect") }
     func refreshUsage() { actions.append("usage-refresh") }
+    func sendMessage(_ command: AgentMessageCommand, completion: @escaping @MainActor (AgentMessageReceipt) -> Void) {
+        messages.append(command); messageCompletion = completion
+    }
 
     func publish(sessions: [AgentSession]) {
         snapshot.sessions = sessions
@@ -71,11 +77,334 @@ struct AgentDashboardTests {
         try selectionAndMembership()
         try quotaSemantics()
         try accountUsageRoutingAndScopes()
+        try subscriptionUsageSignInRouting()
+        try messageRoutingAndFencing()
+        try messageReceiptValidation()
+        try messageStatusFollowsRequest()
+        try messageAvailabilityAndRequestIdentity()
+        try liveChannelKeepsIdleSessionAvailable()
+        try messageCommandValidation()
         try latestActualClaudeUsage()
         try staleReports()
         try capacity()
         try stopFencesCallbacksAndActions()
         print("Agent dashboard tests passed: \(assertions) assertions; 1,000 sessions across 100 injected providers; no real integrations.")
+    }
+
+    static func subscriptionUsageSignInRouting() throws {
+        let codex = FixtureAgentProvider(id: "codex")
+        let claude = FixtureAgentProvider(id: "claude")
+        let command = "'/fixture/boring-claude-bridge' codex-login-usage --data-dir '/fixture/relay'"
+        codex.snapshot.usageAccount = AgentUsageAccountStatus(state: .signInRequired,
+            message: "Sign in to read ChatGPT subscription usage.", signInCommand: command)
+        let state = dashboard([codex, claude]); state.start()
+        try expect(state.provider(forID: "codex")?.connection == .connected &&
+                   state.provider(forID: "codex")?.usageAccount?.state == .signInRequired,
+                   "A healthy session relay does not conceal missing subscription-account sign-in")
+        try expect(state.provider(forID: "codex")?.usage == nil,
+                   "An account sign-in requirement does not invent a usage percentage")
+        try expect(state.copyUsageSignInCommand(providerID: "codex") && codex.actions == ["usage-signin-copy"],
+                   "Explicit Copy routes only to the account provider without connecting or launching login")
+        try expect(!state.copyUsageSignInCommand(providerID: "claude") && !state.copyUsageSignInCommand(providerID: "unknown") && claude.actions.isEmpty,
+                   "Providers without an account command cannot copy or start a sign-in action")
+        codex.snapshot.connection = .failed("Session relay unavailable"); codex.onChange?()
+        try expect(state.provider(forID: "codex")?.usageAccount?.message == "Sign in to read ChatGPT subscription usage.",
+                   "Session errors cannot replace account-specific usage information")
+        try expect(state.copyUsageSignInCommand(providerID: "codex"),
+                   "The account setup command stays actionable without an active session connection")
+        state.refreshUsage(providerID: "codex")
+        try expect(codex.actions.last == "usage-refresh" && !codex.actions.contains("refresh"),
+                   "Subscription Refresh requests a real account refresh instead of only rereading the report")
+        codex.snapshot.usageIsRefreshing = true; codex.onChange?()
+        let actionCount = codex.actions.count
+        state.refreshUsage(providerID: "codex")
+        try expect(codex.actions.count == actionCount, "A pending subscription refresh cannot enqueue duplicate UI requests")
+        codex.snapshot.usageIsRefreshing = false
+        codex.snapshot.usageAccount = AgentUsageAccountStatus(state: .connected,
+            message: "The account has not reported a quota.", signInCommand: nil)
+        codex.onChange?()
+        try expect(state.provider(forID: "codex")?.usage == nil && !state.copyUsageSignInCommand(providerID: "codex"),
+                   "Connected-but-unreported usage stays unavailable rather than looking exhausted or inventing a sign-in action")
+        state.stop()
+        try expect(!state.copyUsageSignInCommand(providerID: "codex"), "Destroyed state cannot perform account actions")
+    }
+
+    static func messageRoutingAndFencing() throws {
+        var left = session("claude")
+        left.control = AgentSessionControl(revision: "owner-a:turn-a", canPrompt: true)
+        var right = session("codex")
+        right.control = AgentSessionControl(revision: "owner-b:turn-b", canPrompt: true)
+        let claude = FixtureAgentProvider(id: "claude", sessions: [left])
+        let codex = FixtureAgentProvider(id: "codex", sessions: [right])
+        let state = dashboard([claude, codex]); state.start()
+        state.setDraftText("Prompt for Claude", for: left.id)
+        state.setDraftText("Prompt for Codex", for: right.id)
+        try expect(state.draft(for: left.id).text == "Prompt for Claude", "Drafts stay with their provider and session")
+        try expect(state.canSendDraft(for: right.id), "A fresh capable connected target enables send")
+        state.sendDraft(for: right.id)
+        try expect(codex.messages.count == 1 && claude.messages.isEmpty, "Send reaches only the selected provider")
+        let first = codex.messages[0]
+        try expect(first.sessionID == "shared" && first.revision == "owner-b:turn-b" && first.text == "Prompt for Codex",
+                   "The exact native session, owner revision and draft are passed through")
+        state.sendDraft(for: right.id)
+        try expect(codex.messages.count == 1, "Double send while pending is ignored")
+        codex.messageCompletion?(AgentMessageReceipt(id: UUID().uuidString, sessionID: first.sessionID,
+            state: .accepted, message: "Wrong ack"))
+        try expect(state.messageStatus(for: right.id)?.pending == true, "An unrelated receipt cannot complete this send")
+        codex.messageCompletion?(AgentMessageReceipt(id: first.id, sessionID: first.sessionID,
+            state: .rejected, message: "Turn changed"))
+        try expect(state.draft(for: right.id).text == "Prompt for Codex", "Rejected send preserves the draft")
+        try expect(state.messageStatus(for: right.id)?.delivery == .rejected, "Rejected delivery is visible")
+        right.control?.revision = "owner-b:turn-c"; codex.publish(sessions: [right])
+        try expect(!state.canSendDraft(for: right.id), "A draft bound to the prior turn cannot send")
+        state.refreshDraft(for: right.id)
+        try expect(state.canSendDraft(for: right.id), "Explicit target review can retain and rebind a prompt")
+        state.sendDraft(for: right.id)
+        let second = codex.messages[1]
+        codex.messageCompletion?(AgentMessageReceipt(id: second.id, sessionID: second.sessionID,
+            state: .accepted, message: "Prompt accepted"))
+        try expect(state.draft(for: right.id).text.isEmpty, "Only an exact accepted receipt clears the draft")
+        try expect(state.draft(for: left.id).text == "Prompt for Claude", "Acknowledgments do not clear another provider's draft")
+        let question = AgentInputQuestion(id: "color", title: "Choice", prompt: "Which color?", options: ["Blue", "Green"])
+        right.phase = .needsInput
+        right.control = AgentSessionControl(revision: "request-one", canPrompt: false,
+            request: AgentInputRequest(id: "question-one", questions: [question]))
+        codex.publish(sessions: [right]); state.refreshDraft(for: right.id)
+        state.setDraftAnswers(["color": ["Blue"]], for: right.id)
+        try expect(state.canSendDraft(for: right.id), "A complete fresh question reply is sendable")
+        right.control?.request?.id = "question-two"; right.control?.revision = "request-two"
+        codex.publish(sessions: [right])
+        try expect(!state.canSendDraft(for: right.id), "Question identity changes fence old answers")
+        state.refreshDraft(for: right.id)
+        try expect(state.draft(for: right.id).answers.isEmpty, "Reviewing a new question clears old choices")
+        state.setDraftAnswers(["color": ["Blue"]], for: right.id)
+        right.control?.request?.questions[0].isSecret = true; codex.publish(sessions: [right])
+        try expect(!state.canSendDraft(for: right.id), "Secret questions cannot be answered through the relay")
+        right.control?.request?.questions[0].isSecret = false; codex.publish(sessions: [right])
+        state.sendDraft(for: right.id)
+        let last = codex.messages.last!
+        let callback = codex.messageCompletion
+        state.stop()
+        callback?(AgentMessageReceipt(id: last.id, sessionID: last.sessionID, state: .accepted, message: "Late"))
+        try expect(state.messageStatus(for: right.id) == nil && state.draft(for: left.id).text.isEmpty,
+                   "Destroy clears private drafts and fences late receipt callbacks")
+    }
+
+    static func messageReceiptValidation() throws {
+        var target = session("claude", "receipt-target")
+        target.control = AgentSessionControl(revision: "owner:turn", canPrompt: true)
+        let provider = FixtureAgentProvider(id: "claude", sessions: [target])
+        let state = dashboard([provider]); state.start()
+        defer { state.stop() }
+        state.setDraftText("Keep this draft until acceptance", for: target.id)
+        state.sendDraft(for: target.id)
+        let first = provider.messages[0]
+        let firstCompletion = provider.messageCompletion!
+
+        state.setDraftText("A pending edit must not replace it", for: target.id)
+        state.setDraftAnswers(["unexpected": ["Answer"]], for: target.id)
+        try expect(state.draft(for: target.id).text == first.text && state.draft(for: target.id).answers.isEmpty,
+                   "A pending command locks both prompt and answer edits")
+        firstCompletion(AgentMessageReceipt(id: first.id, sessionID: first.sessionID,
+            state: .pending, message: "The helper claimed the command"))
+        try expect(state.messageStatus(for: target.id)?.pending == true && !state.canSendDraft(for: target.id),
+                   "A transport pending receipt cannot unlock or complete the UI send")
+        firstCompletion(AgentMessageReceipt(id: first.id, sessionID: "another-session",
+            state: .accepted, message: "Wrong session"))
+        firstCompletion(AgentMessageReceipt(id: first.id, sessionID: first.sessionID,
+            state: .accepted, message: ""))
+        firstCompletion(AgentMessageReceipt(id: first.id, sessionID: first.sessionID,
+            state: .accepted, message: "Invalid timestamp", updatedAt: .nan))
+        try expect(state.messageStatus(for: target.id)?.pending == true && state.draft(for: target.id).text == first.text,
+                   "Wrong-session and malformed receipts leave the send pending and preserve its draft")
+
+        firstCompletion(AgentMessageReceipt(id: first.id, sessionID: first.sessionID,
+            state: .unknown, message: "Acknowledgment was lost"))
+        try expect(state.messageStatus(for: target.id)?.delivery == .unknown && state.draft(for: target.id).text == first.text,
+                   "Unknown delivery is visible without discarding the draft")
+        try expect(provider.messages.count == 1, "Unknown delivery does not automatically retry")
+        state.sendDraft(for: target.id)
+        let second = provider.messages[1]
+        let secondCompletion = provider.messageCompletion!
+        try expect(second.id != first.id, "A new explicit Send gets a distinct command identity")
+        firstCompletion(AgentMessageReceipt(id: first.id, sessionID: first.sessionID,
+            state: .accepted, message: "Late first acknowledgment"))
+        try expect(state.messageStatus(for: target.id)?.commandID == second.id &&
+                   state.messageStatus(for: target.id)?.pending == true && state.draft(for: target.id).text == first.text,
+                   "A late older acknowledgment cannot clear the draft or complete a newer send")
+        secondCompletion(AgentMessageReceipt(id: second.id, sessionID: second.sessionID,
+            state: .accepted, message: "Second accepted"))
+        secondCompletion(AgentMessageReceipt(id: second.id, sessionID: second.sessionID,
+            state: .rejected, message: "Duplicate callback"))
+        try expect(state.messageStatus(for: target.id)?.delivery == .accepted && state.draft(for: target.id).text.isEmpty,
+                   "The first terminal acknowledgment wins and duplicates cannot rewrite its result")
+    }
+
+    static func messageStatusFollowsRequest() throws {
+        var target = session("codex", "status-target")
+        target.control = AgentSessionControl(revision: "owner-one", canPrompt: true)
+        let provider = FixtureAgentProvider(id: "codex", sessions: [target])
+        let state = dashboard([provider]); state.start()
+        defer { state.stop() }
+        state.setDraftText("Ask me a question", for: target.id)
+        state.sendDraft(for: target.id)
+        let prompt = provider.messages[0]
+        try expect(state.currentMessageStatus(for: target.id)?.pending == true,
+                   "Composer shows pending feedback for its exact prompt target")
+        provider.messageCompletion?(AgentMessageReceipt(id: prompt.id, sessionID: prompt.sessionID,
+            state: .accepted, message: "Codex accepted your message"))
+        try expect(state.currentMessageStatus(for: target.id)?.delivery == .accepted,
+                   "Acceptance remains visible for the prompt it actually acknowledges")
+
+        let question = AgentInputQuestion(id: "color", title: "Color", prompt: "Which color?", options: ["Blue", "Green"])
+        target.phase = .needsInput
+        target.control = AgentSessionControl(revision: "owner-one", canPrompt: false,
+            request: AgentInputRequest(id: "question-one", questions: [question]))
+        provider.publish(sessions: [target])
+        try expect(state.currentMessageStatus(for: target.id) == nil,
+                   "Opening a later question never shows the previous prompt's accepted receipt, even under the same owner")
+        try expect(state.messageStatus(for: target.id)?.delivery == .accepted,
+                   "The separately labeled dashboard can retain the latest delivery history")
+        state.setDraftAnswers([question.id: ["Blue"]], for: target.id)
+        state.sendDraft(for: target.id)
+        let firstReply = provider.messages[1]
+        let firstCompletion = provider.messageCompletion!
+        try expect(state.currentMessageStatus(for: target.id)?.pending == true,
+                   "Reply feedback begins only after that question is explicitly sent")
+        target.control?.request?.id = "question-two"
+        provider.publish(sessions: [target])
+        try expect(state.currentMessageStatus(for: target.id) == nil && state.messageStatus(for: target.id)?.pending == true,
+                   "A new request hides the previous request's pending status without releasing its send lock")
+        firstCompletion(AgentMessageReceipt(id: firstReply.id, sessionID: firstReply.sessionID,
+            state: .accepted, message: "First reply accepted"))
+        try expect(state.currentMessageStatus(for: target.id) == nil,
+                   "A late receipt cannot make an unsent second question appear answered")
+        state.setDraftAnswers([question.id: ["Green"]], for: target.id)
+        state.sendDraft(for: target.id)
+        let secondReply = provider.messages[2]
+        provider.messageCompletion?(AgentMessageReceipt(id: secondReply.id, sessionID: secondReply.sessionID,
+            state: .unknown, message: "Reply delivery unconfirmed"))
+        try expect(state.currentMessageStatus(for: target.id)?.delivery == .unknown,
+                   "Unknown delivery stays visible for its own current request")
+        target.control?.revision = "owner-two"
+        provider.publish(sessions: [target])
+        try expect(state.currentMessageStatus(for: target.id) == nil,
+                   "A changed owner also hides receipt status belonging to the prior target")
+    }
+
+    static func messageAvailabilityAndRequestIdentity() throws {
+        var target = session("codex", "availability-target")
+        target.control = AgentSessionControl(revision: "owner:turn", canPrompt: true)
+        let provider = FixtureAgentProvider(id: "codex", sessions: [target])
+        let state = dashboard([provider]); state.start()
+        defer { state.stop() }
+        state.setDraftText("A useful prompt", for: target.id)
+        provider.snapshot.connection = .disconnected; provider.onChange?()
+        state.sendDraft(for: target.id)
+        try expect(!state.canSendDraft(for: target.id) && provider.messages.isEmpty,
+                   "Disconnect fences sending even while the last session snapshot is visible")
+        provider.snapshot.connection = .connected; provider.onChange?()
+        state.updateClock(instant.addingTimeInterval(601))
+        state.sendDraft(for: target.id)
+        try expect(!state.canSendDraft(for: target.id) && provider.messages.isEmpty,
+                   "A stale session cannot receive a draft")
+        state.updateClock(instant)
+        try expect(state.canSendDraft(for: target.id), "A fresh connected target can resume draft composition")
+        state.setDraftText(String(repeating: "x", count: AgentMessageCommand.maximumTextBytes + 1), for: target.id)
+        try expect(state.draft(for: target.id).text == "A useful prompt", "An oversized edit preserves the last bounded draft")
+
+        target.phase = .needsInput
+        let question = AgentInputQuestion(id: "approach", title: "Approach", prompt: "Choose an approach", options: ["Small", "Large"])
+        target.control = AgentSessionControl(revision: "request-owner", canPrompt: false,
+            request: AgentInputRequest(id: "request-one", questions: [question]))
+        provider.publish(sessions: [target]); state.refreshDraft(for: target.id)
+        state.setDraftAnswers([question.id: ["Small"]], for: target.id)
+        try expect(state.canSendDraft(for: target.id), "A complete structured reply is valid without generic prompt support")
+        target.control?.request?.id = "request-two"
+        provider.publish(sessions: [target])
+        try expect(!state.canSendDraft(for: target.id), "Request identity fences a reply even if a provider reused the same revision")
+        state.refreshDraft(for: target.id)
+        try expect(state.draft(for: target.id).answers.isEmpty && !state.canSendDraft(for: target.id),
+                   "Reviewing a different request requires answering that request afresh")
+        state.setDraftAnswers([question.id: ["Small"]], for: target.id)
+        target.control?.revision = "new-owner"
+        provider.publish(sessions: [target])
+        try expect(!state.canSendDraft(for: target.id), "An owner revision change fences a same-request reply until explicit review")
+        provider.publish(sessions: [])
+        state.sendDraft(for: target.id)
+        try expect(provider.messages.isEmpty, "A removed session cannot receive its retained draft")
+    }
+
+    static func liveChannelKeepsIdleSessionAvailable() throws {
+        var time = instant
+        var target = session("claude", "long-idle", phase: .idle, age: 3_600)
+        target.control = AgentSessionControl(revision: "live-channel-owner", canPrompt: true,
+            expiresAt: instant.timeIntervalSince1970 + 8)
+        let provider = FixtureAgentProvider(id: "claude", sessions: [target])
+        let state = AgentDashboardState(adapters: [provider], clock: { time }, schedulesClock: false)
+        state.start()
+        defer { state.stop() }
+        state.setDraftText("What is 2 + 2?", for: target.id)
+        try expect(!state.isStale(target) && state.canSendDraft(for: target.id),
+                   "A verified live channel keeps a long-idle session controllable")
+        try expect(state.sessions.first?.updatedAt == target.updatedAt,
+                   "Channel liveness does not rewrite activity history or ordering")
+
+        // The capability must expire even if a crashed helper generates no
+        // final file notification. A recent activity timestamp cannot save it.
+        time = instant.addingTimeInterval(8)
+        state.updateClock(time)
+        try expect(state.isStale(target) && !state.canSendDraft(for: target.id),
+                   "An expired channel lease makes an idle session stale again")
+        target.updatedAt = time.timeIntervalSince1970
+        provider.publish(sessions: [target])
+        try expect(!state.isStale(target) && !state.canSendDraft(for: target.id),
+                   "A recent event cannot authorize an expired channel capability")
+
+        target.updatedAt = instant.timeIntervalSince1970 - 3_600
+        target.control?.expiresAt = time.timeIntervalSince1970 + 8
+        provider.publish(sessions: [target])
+        try expect(state.canSendDraft(for: target.id),
+                   "A refreshed verified lease restores the same draft without a revision change")
+        provider.snapshot.connection = .disconnected; provider.onChange?()
+        try expect(!state.canSendDraft(for: target.id), "A live-looking lease cannot override provider disconnection")
+        provider.snapshot.connection = .connected
+        target.phase = .ended; provider.publish(sessions: [target])
+        try expect(!state.canSendDraft(for: target.id), "A live-looking lease cannot reopen an ended session")
+
+        target.phase = .idle; target.control?.expiresAt = nil
+        provider.publish(sessions: [target])
+        try expect(state.isStale(target) && !state.canSendDraft(for: target.id),
+                   "A capability with no liveness evidence cannot refresh an old observation")
+    }
+
+    static func messageCommandValidation() throws {
+        let control = AgentSessionControl(revision: "current-owner", canPrompt: true)
+        let valid = AgentMessageCommand(providerID: "claude", sessionID: "target", revision: control.revision,
+            createdAt: instant.timeIntervalSince1970, text: "A deliberate prompt")
+        try expect(valid.matches(control, now: instant), "A current well-formed prompt matches its capability")
+        var invalid = valid; invalid.createdAt -= 121
+        try expect(!invalid.matches(control, now: instant), "An expired command cannot be delivered")
+        invalid = valid; invalid.createdAt += 6
+        try expect(!invalid.matches(control, now: instant), "A command beyond allowed clock skew cannot be delivered")
+        invalid = valid; invalid.text = "text\0payload"
+        try expect(!invalid.matches(control, now: instant), "A NUL-bearing prompt is rejected")
+        invalid = valid; invalid.answers = ["question": ["Unexpected answer"]]
+        try expect(!invalid.matches(control, now: instant), "Prompt commands cannot also carry structured answers")
+
+        let question = AgentInputQuestion(id: "question", title: "Question", prompt: "Choose", options: ["A", "B"])
+        let request = AgentInputRequest(id: "request", questions: [question])
+        let replyControl = AgentSessionControl(revision: "reply-owner", canPrompt: false, request: request)
+        var reply = AgentMessageCommand(providerID: "claude", sessionID: "target", revision: replyControl.revision,
+            createdAt: instant.timeIntervalSince1970, answers: [question.id: ["A"]], requestID: request.id)
+        try expect(reply.matches(replyControl, now: instant), "A complete non-secret reply matches its request")
+        reply.answers["extra"] = ["Answer"]
+        try expect(!reply.matches(replyControl, now: instant), "A reply cannot add question identities absent from the request")
+        reply.answers = [question.id: ["A", "B"]]
+        try expect(!reply.matches(replyControl, now: instant), "A single-choice question rejects multiple answers")
+        reply.answers = [question.id: ["A"]]
+        var secretControl = replyControl; secretControl.request?.questions[0].isSecret = true
+        try expect(!reply.matches(secretControl, now: instant), "Private input never enters an inline command")
     }
 
     static func identitiesAndRouting() throws {

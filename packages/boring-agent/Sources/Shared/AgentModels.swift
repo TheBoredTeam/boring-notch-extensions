@@ -92,7 +92,7 @@ struct AgentUsageSnapshot: Codable, Equatable, Sendable {
 
 /// Stable IDs include the provider so two tools reporting the same native
 /// session ID cannot share selection or receive one another's commands.
-struct AgentSession: Identifiable, Equatable, Sendable {
+struct AgentSession: Codable, Identifiable, Equatable, Sendable {
     var providerID: String
     var nativeID: String
     var project: String
@@ -104,6 +104,7 @@ struct AgentSession: Identifiable, Equatable, Sendable {
     var question: String? = nil
     var questionOptions: [String] = []
     var contextRemaining: Double? = nil
+    var control: AgentSessionControl? = nil
 
     var id: String { providerID + ":" + nativeID }
 
@@ -114,7 +115,8 @@ struct AgentSession: Identifiable, Equatable, Sendable {
         createdAt.isFinite && createdAt > 0 && updatedAt.isFinite && updatedAt > 0 &&
         (model?.utf8.count ?? 0) <= 256 && (question?.utf8.count ?? 0) <= 4096 &&
         questionOptions.count <= 16 && questionOptions.allSatisfy { $0.utf8.count <= 256 } &&
-        (contextRemaining.map { $0.isFinite && (0...100).contains($0) } ?? true)
+        (contextRemaining.map { $0.isFinite && (0...100).contains($0) } ?? true) &&
+        (control?.isValid ?? true)
     }
 }
 
@@ -128,6 +130,10 @@ struct AgentProviderSnapshot: Identifiable, Equatable, Sendable {
     var relayDirectory: String? = nil
     var usageConnection: AgentConnection? = nil
     var usageIsRefreshing: Bool = false
+    var inlineRepliesEnabled: Bool? = nil
+    var messagingSetupCommand: String? = nil
+    var usageAccount: AgentUsageAccountStatus? = nil
+    var usageRefreshError: String? = nil
 
     var id: String { descriptor.id }
 }

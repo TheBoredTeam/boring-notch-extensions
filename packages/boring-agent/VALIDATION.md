@@ -1,3 +1,116 @@
+# BoringAgent 0.3.0 session-control validation — 2026-09-29–30
+
+- Built and signature-verified the independent universal arm64/x86_64 bundle.
+  Build inputs remained unchanged throughout the final compilation.
+- **1,820 assertions passed:** 50 bridge/install, 39 Claude account, 50 Claude
+  messaging, 147 Codex, 180 relay storage, 1,217 dashboard, 54 native picker,
+  and 83 native ABI.
+  These tests use isolated fixtures and do not read real credentials.
+- A native ABI run loaded **1,000 sessions across 100 injected providers** in
+  **240 ms**, with zero eager controllers, all 27 controller lifetimes balanced,
+  and zero late callbacks. An earlier build's 13.8-second outlier did not repeat
+  in a warm 264-ms run; its dashboard projection stayed near 4 ms. Timings are
+  local observations, not performance guarantees.
+- The native session picker checks **1,000 reusable rows**, live search, Waiting
+  filtering, selection across updates, arrow-key browsing, Return to choose,
+  disabled/stopped actions, and no focus acquisition during passive mounts.
+  Compact and regular render checks cover 50–132pt content regions and 155/205pt
+  sidebars. At the normal 92pt content height, compact shows three complete rows
+  and regular shows two. The 50pt variant keeps one complete result reachable.
+- **30 catalog tests** passed. TOML records generate a valid three-record native
+  feed; main's workflow owns the committed aggregate.
+- Regression coverage includes exact session/owner/request targeting, stale and
+  expired leases, long-idle live sessions, per-session drafts, old receipts on
+  new questions, cancellation, one-shot queues, ambiguous delivery, account
+  isolation, real refresh requests/acknowledgments, and cooldowns.
+- Cancellation tests explicitly order child exit separately from stop-report
+  publication, then release an old account result after restarting the service.
+  The restarted owner still accepts a prompt, and stale account state is rejected.
+
+## Real provider checks
+
+A separate real Codex test thread received **What is 2 + 2?** from the native
+notch composer and answered **2 + 2 is 4.** The UI displayed the matching accepted
+receipt and cleared that draft. A real Plan-mode question then appeared with
+Blue/Green options. Selecting Blue and choosing Send from the notch produced
+`serverRequest/resolved` in the original owning connection and a completed turn.
+The UI conservatively displayed unconfirmed delivery because the protocol does
+not separately acknowledge a question response. Existing user threads were not
+resumed into a second owner or given test prompts.
+
+A separate, interactive Claude Code 2.1.283 session received **What is 2 + 2?**
+through the native compact composer and answered **2 + 2 = 4**. A second notch
+message requested a color question; the real AskUserQuestion appeared with
+Blue/Green choices. Selecting Blue and choosing Send produced a matching accepted
+reply receipt, and the original owning session continued with **You chose Blue**.
+These checks used accessibility text entry and native button actions.
+
+A separate native AppKit harness passed **15 assertions** for keyboard focus:
+the actual SwiftUI popover acquired key ownership, its NSTextView received an
+NSApplication-routed key event, and the composer stayed visible. Delayed window
+visibility, passive mounts, withdrawn requests, and repeated model updates were
+also covered. The host passed **21 focused tests** for owned-popover lifetime,
+text input, search-to-list keyboard navigation, provider removal, and tab scale.
+The clean Debug host build at `3ce6af7` also succeeded. Native navigation retains
+the interaction hold only for an enabled responder in the mounted tab that
+explicitly needs panel keyboard focus; ordinary buttons and unrelated windows
+do not keep the notch open.
+
+In the installed compact notch, ordinary keyboard typing entered **What is 3 + 3?**,
+the editor remained open and focused, and the original Claude session acknowledged
+the sent message and answered **3 + 3 = 6**. The updated layout uses native segmented
+controls and readable, separately grouped actions and receipt details. The detached
+Claude channel used the preceding helper build (its Claude sources were unchanged)
+so the existing session could remain attached; the installed extension and Codex
+helper used the final universal build.
+
+The installed background account helper initially selected an npm launcher that
+could not find Node in launchd's minimal PATH. The fix prefers the official native
+CLI and resolves Node for an npm fallback. The actual updated Swift account
+broker was compiled and run under that minimal PATH: it returned
+`signInRequired`, with no fabricated quota. Official account probes found no
+ChatGPT login in the available CLI stores on this Mac. After restarting the
+installed background service, its connected report also returned
+`signInRequired`; a real manual refresh request was acknowledged in 5.4 seconds.
+A recurring background failure was then reproduced: official CLI initialization
+exceeded the original eight-second RPC deadline before authentication was read.
+Account initialization now has a bounded 30-second cold-start allowance on its
+own queue; session RPC deadlines remain eight seconds. A fresh real LaunchAgent
+probe using the same Background policy passed five reads, including a **15.30-second**
+cold start. A private nine-second fixture proved that prompt and question commands
+remain responsive during account startup; cancellation and late results are fenced.
+The LaunchAgent policy is unchanged. The final helper was installed into the real
+relay; Claude settings remained equal as parsed JSON. The live Codex report
+returned `signInRequired` with its existing session connection intact. A refresh
+sent through the shared relay API received the matching acknowledgment and
+finished in the same sign-in-required state without a startup error. The user selected
+a separate ChatGPT subscription connection and deferred sign-in. Real subscription
+numbers and the dedicated login/logout flow therefore remain unverified. Azure/API
+billing is not derived from subscription percentages.
+
+The real Claude relay was restored through the native folder picker after the
+disposable session tests. Its native usage view showed live Max 5x limits: **36%
+used** for five hours, **97% used** weekly, and **0% used** for the separate model
+window; the ring correctly showed **3% left**. These are observations from that
+check, not permanent values or fixtures.
+
+Only the extension's AskUserQuestion hook was added to the existing Claude
+settings. All previous hook groups and unrelated settings were preserved.
+
+The final host and signed extension were installed into the isolated development
+app, and the running host mapped the matching extension binary. The final helper
+also matched the installed bundle; its live Codex refresh was acknowledged in
+**4.05 seconds**. Earlier revisions were installed through Settings. The last
+picker revision used a reversible development-directory replacement because the
+native UI automation connection failed to start, including after reconnect and
+host restart. Its six native dark-Aqua renders and control tests passed, but a
+final in-app mouse/keyboard pass of that exact picker revision remains unverified.
+
+This remains a self-signed, unnotarized development preview for the compatible
+Debug host. Private Desktop-only sessions without an attachable control endpoint,
+production-host/Gatekeeper acceptance, Intel execution, and physical multi-display
+behavior are not established by these checks.
+
 # BoringAgent 0.2.1 account usage validation — 2026-09-29
 
 - Built and signature-verified the independent universal arm64/x86_64 bundle.

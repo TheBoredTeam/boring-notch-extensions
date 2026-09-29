@@ -21,9 +21,14 @@ protocol AgentProviderAdapter: AnyObject {
     func openOriginApp(nativeID: String)
     func copyResumeCommand(nativeID: String)
     func copySetupCommand()
+    func copyMessagingSetupCommand()
+    func copyUsageSignInCommand() -> Bool
     func connectUsage()
     func disconnectUsage()
     func refreshUsage()
+    func setInlineRepliesEnabled(_ enabled: Bool)
+    func sendMessage(_ command: AgentMessageCommand,
+                     completion: @escaping @MainActor (AgentMessageReceipt) -> Void)
 }
 
 extension AgentProviderAdapter {
@@ -32,6 +37,14 @@ extension AgentProviderAdapter {
     func connectUsage() {}
     func disconnectUsage() {}
     func refreshUsage() {}
+    func setInlineRepliesEnabled(_ enabled: Bool) {}
+    func copyMessagingSetupCommand() {}
+    func copyUsageSignInCommand() -> Bool { false }
+    func sendMessage(_ command: AgentMessageCommand,
+                     completion: @escaping @MainActor (AgentMessageReceipt) -> Void) {
+        completion(AgentMessageReceipt(id: command.id, sessionID: command.sessionID,
+            state: .rejected, message: "This session does not support messages from the notch. Open the original session."))
+    }
 }
 
 enum AgentProviderDescriptors {
@@ -53,7 +66,7 @@ enum AgentProviderDescriptors {
 enum AgentProviderRegistry {
     static func makeDefaultAdapters() -> [any AgentProviderAdapter] {
         [ClaudeAgentProviderAdapter(),
-         UnavailableAgentProviderAdapter(descriptor: AgentProviderDescriptors.codex),
+         RelayAgentProviderAdapter(descriptor: AgentProviderDescriptors.codex),
          UnavailableAgentProviderAdapter(descriptor: AgentProviderDescriptors.antigravity)]
     }
 }
@@ -68,7 +81,7 @@ final class UnavailableAgentProviderAdapter: AgentProviderAdapter {
 
     init(descriptor: AgentProviderDescriptor) {
         self.descriptor = descriptor
-        let explanation = "The \(descriptor.shortName) integration is not available yet. Claude is supported in this preview."
+        let explanation = "The \(descriptor.shortName) integration is not available yet."
         snapshot = AgentProviderSnapshot(descriptor: descriptor, connection: .unavailable(explanation), message: explanation)
     }
 
@@ -125,6 +138,7 @@ final class ClaudeAgentProviderAdapter: AgentProviderAdapter {
         backend.$accountUsageError.sink { [weak self] _ in self?.schedulePublication() }.store(in: &subscriptions)
         backend.$accountUsageReadError.sink { [weak self] _ in self?.schedulePublication() }.store(in: &subscriptions)
         backend.$accountUsageRequestPending.sink { [weak self] _ in self?.schedulePublication() }.store(in: &subscriptions)
+        backend.$inlineRepliesEnabled.sink { [weak self] _ in self?.schedulePublication() }.store(in: &subscriptions)
         backend.start(managesClock: false)
         publish()
     }
@@ -137,7 +151,8 @@ final class ClaudeAgentProviderAdapter: AgentProviderAdapter {
             AgentSession(providerID: descriptor.id, nativeID: $0.id, project: $0.project,
                          directory: $0.directory, phase: $0.phase, createdAt: $0.createdAt,
                          updatedAt: $0.updatedAt, model: $0.model, question: $0.question,
-                         questionOptions: $0.questionOptions, contextRemaining: $0.usage?.contextRemaining)
+                         questionOptions: $0.questionOptions, contextRemaining: $0.usage?.contextRemaining,
+                         control: $0.control)
         }
         if let observation = Self.projectUsage(from: bounded),
            latestActualUsage.map({ observation.updatedAt >= $0.updatedAt }) ?? true {
@@ -226,7 +241,11 @@ final class ClaudeAgentProviderAdapter: AgentProviderAdapter {
             setupCommand: ClaudePluginResources.setupCommand,
             message: backend.actionMessage ?? connection.message,
             relayDirectory: backend.directory?.path, usageConnection: usageConnection,
-            usageIsRefreshing: account?.state == .loading || backend.accountUsageRequestPending)
+            usageIsRefreshing: account?.state == .loading || backend.accountUsageRequestPending,
+            inlineRepliesEnabled: backend.inlineRepliesEnabled,
+            messagingSetupCommand: ClaudePluginResources.helperURL.map {
+                "'" + $0.path.replacingOccurrences(of: "'", with: "'\\''") + "' channel-setup"
+            })
         guard value != snapshot else { return }
         snapshot = value
         onChange?()
@@ -240,6 +259,7 @@ final class ClaudeAgentProviderAdapter: AgentProviderAdapter {
     func connect() { if isActive { backend.chooseDirectory() } }
     func disconnect() { if isActive { backend.disconnect() } }
     func connectUsage() { if isActive { backend.requestAccountUsage(.enable) } }
+    func setInlineRepliesEnabled(_ enabled: Bool) { if isActive { backend.setInlineRepliesEnabled(enabled) } }
     func disconnectUsage() { if isActive { backend.requestAccountUsage(.disable) } }
     func refreshUsage() {
         guard isActive, backend.accountUsage?.enabled == true else { return }
@@ -263,6 +283,16 @@ final class ClaudeAgentProviderAdapter: AgentProviderAdapter {
     }
 
     func copySetupCommand() { if isActive { backend.copySetupCommand() } }
+    func copyMessagingSetupCommand() {
+        guard isActive, let value = snapshot.messagingSetupCommand else { return }
+        backend.copy(value, message: "Channel setup command copied.")
+    }
+
+    func sendMessage(_ command: AgentMessageCommand,
+                     completion: @escaping @MainActor (AgentMessageReceipt) -> Void) {
+        guard isActive else { return }
+        backend.sendMessage(command, completion: completion)
+    }
 
     func stop() {
         guard isActive else { return }
