@@ -30,6 +30,9 @@ private final class FixtureAgentProvider: AgentProviderAdapter {
     func openOriginApp(nativeID: String) { actions.append("origin:\(nativeID)") }
     func copyResumeCommand(nativeID: String) { actions.append("resume:\(nativeID)") }
     func copySetupCommand() { actions.append("setup") }
+    func connectUsage() { actions.append("usage-connect") }
+    func disconnectUsage() { actions.append("usage-disconnect") }
+    func refreshUsage() { actions.append("usage-refresh") }
 
     func publish(sessions: [AgentSession]) {
         snapshot.sessions = sessions
@@ -67,6 +70,7 @@ struct AgentDashboardTests {
         try identitiesAndRouting()
         try selectionAndMembership()
         try quotaSemantics()
+        try accountUsageRoutingAndScopes()
         try latestActualClaudeUsage()
         try staleReports()
         try capacity()
@@ -110,6 +114,32 @@ struct AgentDashboardTests {
         state.connectProvider("unknown")
         state.copySetupCommand(providerID: "unknown")
         try expect(codex.actions.isEmpty && claude.actions.isEmpty, "Unknown providers and sessions cannot receive actions")
+    }
+
+    static func accountUsageRoutingAndScopes() throws {
+        let provider = FixtureAgentProvider(id: "claude")
+        provider.snapshot.usageConnection = .disconnected
+        provider.snapshot.usage = AgentUsageSnapshot(updatedAt: instant.timeIntervalSince1970, windows: [
+            AgentQuotaWindow(id: "five-hour", title: "5-hour limit", remainingPercent: 57),
+            AgentQuotaWindow(id: "weekly", title: "Weekly · all models", remainingPercent: 11),
+            AgentQuotaWindow(id: "fable", title: "Weekly · Fable", remainingPercent: 0, contributesToOverall: false),
+        ])
+        let unavailable = FixtureAgentProvider(id: "codex")
+        let state = dashboard([provider, unavailable])
+        state.start()
+        try expect(state.provider(forID: "claude")?.usage?.limitingRemainingPercent == 11,
+                   "An exhausted model-specific window does not report that every model is exhausted")
+        try expect(state.provider(forID: "claude")?.usage?.windows.count == 3,
+                   "Model-specific quota remains visible in detailed usage")
+        state.connectUsage(providerID: "claude")
+        state.disconnectUsage(providerID: "claude")
+        state.refreshUsage(providerID: "claude")
+        state.connectUsage(providerID: "codex")
+        try expect(provider.actions == ["usage-connect", "usage-disconnect", "usage-refresh"] && unavailable.actions.isEmpty,
+                   "Account access routes only to an adapter exposing that independent source")
+        state.stop()
+        state.connectUsage(providerID: "claude")
+        try expect(provider.actions.count == 3, "Destroyed dashboards cannot enable account access")
     }
 
     static func selectionAndMembership() throws {

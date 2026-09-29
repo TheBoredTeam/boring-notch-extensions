@@ -279,6 +279,31 @@ final class AgentDashboardState: ObservableObject {
     func disconnectProvider(_ id: String) { configureProvider(id) { $0.disconnect() } }
     func copySetupCommand(providerID: String) { configureProvider(providerID) { $0.copySetupCommand() } }
 
+    func connectUsage(providerID: String) {
+        configureUsage(providerID) { $0.connectUsage() }
+    }
+
+    func disconnectUsage(providerID: String) {
+        configureUsage(providerID) { $0.disconnectUsage() }
+    }
+
+    func refreshUsage(providerID: String) {
+        guard isActive else { return }
+        updateClock(clockSource())
+        if snapshotsByID[providerID]?.usageConnection == nil {
+            refresh(providerID: providerID)
+        } else {
+            configureUsage(providerID) { $0.refreshUsage() }
+        }
+    }
+
+    private func configureUsage(_ id: String, action: (any AgentProviderAdapter) -> Void) {
+        guard isActive, let adapter = adaptersByID[id],
+              snapshotsByID[id]?.usageConnection?.canConfigure == true else { return }
+        action(adapter)
+        receiveChange(providerID: id)
+    }
+
     private func configureProvider(_ id: String, action: (any AgentProviderAdapter) -> Void) {
         guard isActive, let adapter = adaptersByID[id], snapshotsByID[id]?.connection.canConfigure == true else { return }
         actionProviderID = id

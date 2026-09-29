@@ -57,11 +57,12 @@ enum AgentConnection: Equatable, Sendable {
 
 /// Account allowance only. Session context usage is intentionally represented
 /// on AgentSession and must never be substituted for a quota window.
-struct AgentQuotaWindow: Identifiable, Equatable, Sendable {
+struct AgentQuotaWindow: Identifiable, Codable, Equatable, Sendable {
     var id: String
     var title: String
     var remainingPercent: Double
     var resetsAt: Double? = nil
+    var contributesToOverall: Bool = true
 
     var isValid: Bool {
         !id.isEmpty && id.utf8.count <= 128 && !title.isEmpty && title.utf8.count <= 256 &&
@@ -70,7 +71,7 @@ struct AgentQuotaWindow: Identifiable, Equatable, Sendable {
     }
 }
 
-struct AgentUsageSnapshot: Equatable, Sendable {
+struct AgentUsageSnapshot: Codable, Equatable, Sendable {
     var updatedAt: Double
     var planName: String? = nil
     var windows: [AgentQuotaWindow]
@@ -79,7 +80,7 @@ struct AgentUsageSnapshot: Equatable, Sendable {
     /// report is nil; a real exhausted quota is zero.
     var limitingRemainingPercent: Double? {
         guard updatedAt.isFinite, updatedAt > 0 else { return nil }
-        return windows.lazy.filter(\.isValid).map(\.remainingPercent).min()
+        return windows.lazy.filter { $0.isValid && $0.contributesToOverall }.map(\.remainingPercent).min()
     }
 
     func isStale(at now: Date) -> Bool {
@@ -125,6 +126,8 @@ struct AgentProviderSnapshot: Identifiable, Equatable, Sendable {
     var setupCommand: String? = nil
     var message: String? = nil
     var relayDirectory: String? = nil
+    var usageConnection: AgentConnection? = nil
+    var usageIsRefreshing: Bool = false
 
     var id: String { descriptor.id }
 }

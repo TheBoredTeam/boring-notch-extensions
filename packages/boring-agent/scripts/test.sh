@@ -33,6 +33,13 @@ xcrun swiftc -swift-version 5 -parse-as-library -module-name BoringClaudeBridgeT
     Tests/BridgeTests.swift -framework AppKit -o "$test_output/bridge-tests"
 "$test_output/bridge-tests"
 
+# Account transport and scheduling use injected credentials, HTTP, and clocks.
+# These tests never query a real Keychain item or Anthropic account.
+xcrun swiftc -swift-version 5 -parse-as-library -module-name BoringAgentAccountUsageTests \
+    -module-cache-path "$module_cache" Sources/Shared/*.swift Sources/Bridge/ClaudeAccountUsageService.swift \
+    Tests/ClaudeAccountUsageTests.swift -o "$test_output/account-usage-tests"
+"$test_output/account-usage-tests"
+
 # Inject memory-only adapters: this test never starts the real Claude backend,
 # reads saved preferences, or touches the user's relay/configuration.
 xcrun swiftc -swift-version 5 -parse-as-library -module-name BoringAgentDashboardTests \

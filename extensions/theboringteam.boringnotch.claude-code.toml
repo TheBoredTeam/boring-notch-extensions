@@ -5,7 +5,7 @@ name = "BoringAgent"
 icon = "https://raw.githubusercontent.com/TheBoredTeam/boring-notch-extensions/main/assets/extensions/boring-agent.png"
 tagline = "One notch dashboard for your coding agents."
 description = "A free, independent agent dashboard with Progress and Usage views, provider quota rings, native detail popovers, session search, and question alerts in regular and compact layouts. Claude Code is connected through its relay; Codex and Antigravity adapters are prepared and explicitly unavailable until implemented. Return to the originating agent to reply."
-version = "0.2.0"
+version = "0.2.1"
 status = "preview"
 statusNote = "Self-signed development preview. Requires the native-extension Debug host with development plugins enabled. Not notarized and not installable in a production host."
 categories = ["Developer Tools", "Productivity"]
@@ -13,7 +13,7 @@ requirements = ["macOS 14 or later", "Compatible Boring Notch native-extension D
 websiteUrl = "https://github.com/TheBoredTeam/boring-notch-extensions/tree/main/packages/boring-agent"
 sourceUrl = "https://github.com/TheBoredTeam/boring-notch-extensions/tree/main/packages/boring-agent"
 supportUrl = "https://github.com/TheBoredTeam/boring-notch-extensions/issues"
-privacy = "Reads documented hook and status-line input. Stores bounded local session metadata, questions, choices, and usage in a private relay folder. Does not read transcripts, credentials, or unrelated tool arguments. No extension analytics or usage API scraping. Question text can contain sensitive project information."
+privacy = "Reads documented hook and status-line input. Stores bounded local session metadata, questions, choices, and usage in a private relay folder. Does not read transcripts, credentials, or unrelated tool arguments. Opt-in account usage reads the default Claude Code OAuth Keychain login in the separate relay helper and sends it only to Anthropic profile/usage endpoints. Tokens are never stored, refreshed, or exposed to the host. No analytics, browser cookies, or transcript reading. Question text can contain sensitive project information."
 installSteps = ["Read the package README and download its development ZIP from GitHub Releases.", "Install in a compatible Debug host through Settings → Extensions.", "Copy and run the bundled relay setup command, then select the printed relay folder in extension settings.", "Open the Agents tab. Current local Claude Code sessions reload hooks and appear after their next supported event."]
 
 [developer]

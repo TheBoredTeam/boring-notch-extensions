@@ -177,4 +177,50 @@ enum ClaudeStorage {
         else { throw ClaudeStorageError.invalidRecord }
         return value
     }
+
+    static func accountUsage(directory: URL) throws -> ClaudeAccountUsageRecord? {
+        try checkDirectory(directory)
+        let url = directory.appendingPathComponent("account-usage.json")
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let value = try JSONDecoder().decode(ClaudeAccountUsageRecord.self, from: read(url))
+        guard value.isValid else { throw ClaudeStorageError.invalidRecord }
+        return value
+    }
+
+    static func writeAccountUsage(_ value: ClaudeAccountUsageRecord, directory: URL) throws {
+        guard value.isValid else { throw ClaudeStorageError.invalidRecord }
+        try atomicWrite(JSONEncoder().encode(value), to: directory.appendingPathComponent("account-usage.json"))
+    }
+
+    static func accountUsageRequest(directory: URL) throws -> ClaudeAccountUsageRequest? {
+        try checkDirectory(directory)
+        let url = directory.appendingPathComponent("account-usage-request.json")
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let value = try JSONDecoder().decode(ClaudeAccountUsageRequest.self, from: read(url, limit: 2048))
+        guard value.isValid else { throw ClaudeStorageError.invalidRecord }
+        return value
+    }
+
+    static func requestAccountUsage(_ value: ClaudeAccountUsageRequest, directory: URL) throws {
+        guard value.isValid else { throw ClaudeStorageError.invalidRecord }
+        try checkDirectory(directory)
+        try locked(at: directory.appendingPathComponent(".account-usage-request.lock")) {
+            try atomicWrite(JSONEncoder().encode(value),
+                            to: directory.appendingPathComponent("account-usage-request.json"), limit: 2048)
+        }
+    }
+
+    static func clearAccountUsageRequest(directory: URL) throws {
+        try checkDirectory(directory)
+        let url = directory.appendingPathComponent("account-usage-request.json")
+        guard unlink(url.path) == 0 || errno == ENOENT else { throw ClaudeStorageError.io }
+    }
+
+    static func takeAccountUsageRequest(directory: URL) throws -> ClaudeAccountUsageRequest? {
+        try checkDirectory(directory)
+        return try locked(at: directory.appendingPathComponent(".account-usage-request.lock")) {
+            defer { try? clearAccountUsageRequest(directory: directory) }
+            return try accountUsageRequest(directory: directory)
+        }
+    }
 }
