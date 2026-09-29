@@ -67,6 +67,16 @@ jobs:
           PY
           security import "$RUNNER_TEMP/claude-code-signing.p12" -k "$keychain" -P "$SIGNING_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
+          python3 - <<'PY'
+          import json, os, shlex, subprocess
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          keychain = str(root / 'claude-code-signing.keychain-db')
+          existing = shlex.split(subprocess.check_output(['security', 'list-keychains', '-d', 'user'], text=True))
+          existing = [path for path in existing if path != keychain]
+          (root / 'claude-code-keychain-search.json').write_text(json.dumps(existing))
+          subprocess.run(['security', 'list-keychains', '-d', 'user', '-s', keychain, *existing], check=True)
+          PY
           rm -f "$RUNNER_TEMP/claude-code-signing.p12"
       - name: Trust only the preview certificate for code signing on this runner
         timeout-minutes: 1
@@ -80,13 +90,23 @@ jobs:
           # certificate for code signing in this disposable runner. The admin
           # trust domain avoids an interactive user-authorization dialog on CI.
           security find-certificate -a -p "$keychain" > "$RUNNER_TEMP/claude-code-public.pem"
-          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k "$keychain" "$RUNNER_TEMP/claude-code-public.pem"
+          sudo -n security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$RUNNER_TEMP/claude-code-public.pem"
           python3 - <<'PY'
           import os, subprocess
           identities = subprocess.check_output(['security', 'find-identity', '-v', '-p', 'codesigning', os.environ['RUNNER_TEMP'] + '/claude-code-signing.keychain-db'], text=True)
           if os.environ['SIGNING_IDENTITY'] not in identities:
               raise SystemExit('Expected signing identity is not valid for code signing')
           PY
+      - name: Verify private-key access before building
+        timeout-minutes: 1
+        shell: bash
+        env:
+          SIGNING_IDENTITY: ${{ secrets.CLAUDE_CODE_SIGNING_IDENTITY }}
+        run: |
+          printf 'int main(void) { return 0; }\n' > "$RUNNER_TEMP/claude-code-signing-probe.c"
+          xcrun clang "$RUNNER_TEMP/claude-code-signing-probe.c" -o "$RUNNER_TEMP/claude-code-signing-probe"
+          codesign --force --sign "$SIGNING_IDENTITY" --keychain "$RUNNER_TEMP/claude-code-signing.keychain-db" --options runtime --timestamp=none "$RUNNER_TEMP/claude-code-signing-probe"
+          codesign --verify --strict "$RUNNER_TEMP/claude-code-signing-probe"
       - name: Build and verify the signed universal preview
         working-directory: packages/claude-code
         env:
@@ -120,6 +140,30 @@ jobs:
         timeout-minutes: 1
         shell: bash
         run: |
-          sudo security remove-trusted-cert -d "$RUNNER_TEMP/claude-code-public.pem" 2>/dev/null || true
-          security delete-keychain "$RUNNER_TEMP/claude-code-signing.keychain-db" 2>/dev/null || true
-          rm -f "$RUNNER_TEMP/claude-code-signing.p12" "$RUNNER_TEMP/claude-code-public.pem"
+          python3 - <<'PY'
+          import hashlib, json, os, ssl, subprocess
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          def clean_command(arguments):
+              try:
+                  subprocess.run(arguments, timeout=10, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+              except subprocess.TimeoutExpired:
+                  print('::warning::A keychain cleanup command timed out on the disposable runner')
+          (root / 'claude-code-signing.p12').unlink(missing_ok=True)
+          search = root / 'claude-code-keychain-search.json'
+          if search.exists():
+              clean_command(['security', 'list-keychains', '-d', 'user', '-s', *json.loads(search.read_text())])
+              search.unlink()
+          keychain = root / 'claude-code-signing.keychain-db'
+          clean_command(['security', 'delete-keychain', str(keychain)])
+          for suffix in ['', '-shm', '-wal']:
+              Path(str(keychain) + suffix).unlink(missing_ok=True)
+          certificate = root / 'claude-code-public.pem'
+          if certificate.exists():
+              digest = hashlib.sha1(ssl.PEM_cert_to_DER_cert(certificate.read_text())).hexdigest().upper()
+              clean_command(['sudo', '-n', 'security', 'remove-trusted-cert', '-d', str(certificate)])
+              clean_command(['sudo', '-n', 'security', 'delete-certificate', '-Z', digest, '/Library/Keychains/System.keychain'])
+              certificate.unlink()
+          for name in ['claude-code-signing-probe', 'claude-code-signing-probe.c']:
+              (root / name).unlink(missing_ok=True)
+          PY
