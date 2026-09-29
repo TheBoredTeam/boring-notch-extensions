@@ -1,0 +1,70 @@
+# Native extension listing. Keep preview status until a reviewed signed ZIP exists.
+# Source metadata is TOML; scripts/catalog.py publishes the host JSON transport.
+schemaVersion = 1
+artwork = "assets/extensions/lock-screen-preview.svg"
+artworkAlt = "Illustration of a dark Mac lock screen with a small notch and original sample lyrics. Product preview, not a screenshot."
+categories = [
+  "Music",
+  "Productivity",
+]
+description = "Give your lock screen a little more life. Follow your music with synced lyrics, settle into a Focus session, or keep the next thing in view with Glance. One extension. One permanent unlock."
+featured = true
+heroTitle = "Good things happen\neven on pause."
+icon = "assets/extensions/lock-screen.svg"
+id = "theboringteam.boringnotch.lockscreen-lyrics"
+installSteps = [
+  "Wait for the compatible Boring Notch release and signed extension package.",
+  "Purchase the extension, then download its .bnplugin package from the publisher.",
+  "In Boring Notch, open Settings → Extensions → Install extension and review the publisher.",
+  "Open Lock Screen's settings and activate your license code. One unlock includes all three modes.",
+]
+name = "Lock Screen"
+privacy = "Lyrics lookup sends track metadata to LRCLIB, Apple's public music catalog, and the AMLL community database. Calendar details and notifications are optional. Anything shown on your lock screen can be seen by people nearby."
+purchaseUrl = "https://buymeacoffee.com/jfxh67wvfxq/e/580376"
+requirements = [
+  "macOS 14 or later",
+  "Boring Notch with extension support (upcoming release)",
+  "The Lock Screen extension installed and activated",
+]
+slug = "lock-screen"
+status = "coming-soon"
+statusNote = "In development. The signed extension and a compatible Boring Notch release are not available yet. Purchasing will open here when they're ready."
+supportUrl = "https://discord.com/invite/HznxBpnJmQ"
+tagline = "Your music. Your focus. Even while you're away."
+version = "1.0 preview"
+websiteUrl = "https://theboring.name/extensions/?extension=lock-screen"
+
+[developer]
+name = "TheBoredTeam"
+url = "https://github.com/TheBoredTeam"
+
+[[features]]
+description = "Synced lyrics, album artwork, and a minimal player. Word highlighting is available for tracks with community word timings."
+title = "Stay in the song"
+
+[[features]]
+description = "Keep a Focus session in view with a quiet timer and optional break reminders."
+title = "Find your focus"
+
+[[features]]
+description = "See useful details and optionally your next calendar event, without unlocking your Mac."
+title = "A glance is enough"
+
+[[features]]
+description = "Music, Focus, and Glance are all included for $1, once. No subscription or separate mode purchases."
+title = "One small purchase"
+
+[[previews]]
+alt = "Illustration of a dark Mac lock screen with a small notch and original sample lyrics. Product preview, not a screenshot."
+caption = "Design preview · Stay in the song"
+image = "assets/extensions/lock-screen-preview.svg"
+
+[[previews]]
+alt = "Design illustration of a quiet Focus timer and an optional sample calendar event on a green landscape."
+caption = "Design preview · Focus and Glance, included"
+image = "assets/extensions/lock-screen-focus.svg"
+
+[price]
+amount = 1
+billing = "one-time"
+currency = "USD"

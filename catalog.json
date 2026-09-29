@@ -1,0 +1,130 @@
+{
+  "extensions": [
+    {
+      "artwork": "assets/extensions/now-playing-preview.svg",
+      "artworkAlt": "Illustration of a compact Now Playing panel with a track title and a playback button.",
+      "categories": [
+        "Developer tools",
+        "Music"
+      ],
+      "description": "A free, open-source starter for extension developers. Show the current track, control playback, and learn how to give your extension its own settings. Build it locally to explore the public extension API.",
+      "developer": {
+        "name": "TheBoredTeam",
+        "url": "https://github.com/TheBoredTeam"
+      },
+      "featured": false,
+      "features": [
+        {
+          "description": "A complete example with a settings view, media updates, and a playback command.",
+          "title": "Start with something working"
+        },
+        {
+          "description": "Use the documented C API to create your own free or paid extension. Each developer manages their own distribution and access.",
+          "title": "Make it your own"
+        }
+      ],
+      "icon": "assets/extensions/now-playing.svg",
+      "id": "com.example.boringnotch.now-playing",
+      "installSteps": [
+        "Open the source and follow the included README.",
+        "Build the example and run the supplied smoke test.",
+        "Launch a compatible Debug Boring Notch build with development extensions enabled.",
+        "Open Settings → Extensions to try the example. Development builds are not intended for general distribution."
+      ],
+      "name": "Now Playing Example",
+      "price": {
+        "amount": 0,
+        "billing": "free",
+        "currency": "USD"
+      },
+      "privacy": "The example receives track title, artist, and playback state from Boring Notch. It does not use a license service or request artwork.",
+      "requirements": [
+        "macOS 14 or later",
+        "Xcode command-line tools",
+        "A Debug Boring Notch build from the extension-host preview branch"
+      ],
+      "slug": "now-playing-example",
+      "sourceUrl": "https://github.com/TheBoredTeam/boring.notch/tree/e4ca1a8ba000b95cda742cf74c5c2bfa656af4fd/examples/now-playing-extension",
+      "status": "preview",
+      "statusNote": "Developer preview. Source code is available now; this is an example to build with Xcode, not a signed download for everyday use.",
+      "supportUrl": "https://github.com/TheBoredTeam/boring.notch/issues",
+      "tagline": "A small beginning for your next big idea.",
+      "version": "API v1 preview",
+      "websiteUrl": "https://theboring.name/extensions/?extension=now-playing-example"
+    },
+    {
+      "artwork": "assets/extensions/lock-screen-preview.svg",
+      "artworkAlt": "Illustration of a dark Mac lock screen with a small notch and original sample lyrics. Product preview, not a screenshot.",
+      "categories": [
+        "Music",
+        "Productivity"
+      ],
+      "description": "Give your lock screen a little more life. Follow your music with synced lyrics, settle into a Focus session, or keep the next thing in view with Glance. One extension. One permanent unlock.",
+      "developer": {
+        "name": "TheBoredTeam",
+        "url": "https://github.com/TheBoredTeam"
+      },
+      "featured": true,
+      "features": [
+        {
+          "description": "Synced lyrics, album artwork, and a minimal player. Word highlighting is available for tracks with community word timings.",
+          "title": "Stay in the song"
+        },
+        {
+          "description": "Keep a Focus session in view with a quiet timer and optional break reminders.",
+          "title": "Find your focus"
+        },
+        {
+          "description": "See useful details and optionally your next calendar event, without unlocking your Mac.",
+          "title": "A glance is enough"
+        },
+        {
+          "description": "Music, Focus, and Glance are all included for $1, once. No subscription or separate mode purchases.",
+          "title": "One small purchase"
+        }
+      ],
+      "heroTitle": "Good things happen\neven on pause.",
+      "icon": "assets/extensions/lock-screen.svg",
+      "id": "theboringteam.boringnotch.lockscreen-lyrics",
+      "installSteps": [
+        "Wait for the compatible Boring Notch release and signed extension package.",
+        "Purchase the extension, then download its .bnplugin package from the publisher.",
+        "In Boring Notch, open Settings → Extensions → Install extension and review the publisher.",
+        "Open Lock Screen's settings and activate your license code. One unlock includes all three modes."
+      ],
+      "name": "Lock Screen",
+      "previews": [
+        {
+          "alt": "Illustration of a dark Mac lock screen with a small notch and original sample lyrics. Product preview, not a screenshot.",
+          "caption": "Design preview · Stay in the song",
+          "image": "assets/extensions/lock-screen-preview.svg"
+        },
+        {
+          "alt": "Design illustration of a quiet Focus timer and an optional sample calendar event on a green landscape.",
+          "caption": "Design preview · Focus and Glance, included",
+          "image": "assets/extensions/lock-screen-focus.svg"
+        }
+      ],
+      "price": {
+        "amount": 1,
+        "billing": "one-time",
+        "currency": "USD"
+      },
+      "privacy": "Lyrics lookup sends track metadata to LRCLIB, Apple's public music catalog, and the AMLL community database. Calendar details and notifications are optional. Anything shown on your lock screen can be seen by people nearby.",
+      "purchaseUrl": "https://buymeacoffee.com/jfxh67wvfxq/e/580376",
+      "requirements": [
+        "macOS 14 or later",
+        "Boring Notch with extension support (upcoming release)",
+        "The Lock Screen extension installed and activated"
+      ],
+      "slug": "lock-screen",
+      "status": "coming-soon",
+      "statusNote": "In development. The signed extension and a compatible Boring Notch release are not available yet. Purchasing will open here when they're ready.",
+      "supportUrl": "https://discord.com/invite/HznxBpnJmQ",
+      "tagline": "Your music. Your focus. Even while you're away.",
+      "version": "1.0 preview",
+      "websiteUrl": "https://theboring.name/extensions/?extension=lock-screen"
+    }
+  ],
+  "schemaVersion": 1
+}

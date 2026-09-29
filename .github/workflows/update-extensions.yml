@@ -1,5 +1,5 @@
 # Homebrew-style release discovery — the automation that makes "register once"
-# true. For every registry record with update.strategy = "github-release", watch
+# true. For every legacy pack record with update.strategy = "github-release", watch
 # the author's repository for new releases; when one is newer than what the
 # catalog lists, file an update PR that bumps version, release url, and sha256.
 #
@@ -21,6 +21,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - name: Discover new releases and file update PRs
         env:
@@ -28,6 +31,10 @@ jobs:
         shell: python
         run: |
           import glob, hashlib, json, os, re, subprocess, sys, urllib.request
+          from pathlib import Path
+
+          sys.path.insert(0, str(Path("scripts").resolve()))
+          from catalog import read_record, record_kind
 
           def api(url):
               req = urllib.request.Request(url, headers={
@@ -36,43 +43,6 @@ jobs:
               })
               with urllib.request.urlopen(req, timeout=30) as resp:
                   return json.load(resp)
-
-          def parse_toml(text):
-              # Same registry-subset parser as validate.yml, so both sides of
-              # the automation agree on the schema.
-              table, arrays = {}, {}
-              section, array = None, None
-              for raw in text.splitlines():
-                  line = raw.strip()
-                  if not line or line.startswith("#"):
-                      continue
-                  if line.startswith("[["):
-                      key = line[2:-2]
-                      arrays.setdefault(key, []).append({})
-                      array, section = (key, len(arrays[key]) - 1), None
-                      continue
-                  if line.startswith("["):
-                      section, array = line[1:-1], None
-                      continue
-                  if "=" not in line:
-                      continue
-                  key, _, rest = line.partition("=")
-                  key, value = key.strip(), rest.strip()
-                  # Strip an out-of-quote comment, then unquote. Comment
-                  # stripping must respect quotes.
-                  if value.startswith('"'):
-                      end = value.find('"', 1)
-                      if end != -1:
-                          value = value[1:end]
-                  elif "#" in value:
-                      value = value[: value.index("#")].strip()
-                  if array:
-                      arrays[array[0]][array[1]][key] = value
-                  elif section:
-                      table[f"{section}.{key}"] = value
-                  else:
-                      table[key] = value
-              return table, arrays
 
           def version_key(v):
               # Numeric-aware ordering: 1.10.0 > 1.9.0.
@@ -113,9 +83,12 @@ jobs:
           updated = 0
           for path in sorted(glob.glob("extensions/*.toml")):
               record = open(path, encoding="utf-8").read()
-              table, _ = parse_toml(record)
-
-              if table.get("update.strategy") != "github-release":
+              table = read_record(Path(path))
+              # Native artifacts require explicit publisher/signing review. The
+              # existing pack updater must never synthesize or mutate them.
+              if record_kind(table, Path(path).name) != "legacy":
+                  continue
+              if table.get("update", {}).get("strategy") != "github-release":
                   continue
               repo = table.get("repository", "")
               current = table.get("version", "0.0.0")

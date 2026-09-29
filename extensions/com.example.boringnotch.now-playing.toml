@@ -1,0 +1,51 @@
+# Native extension listing. Keep preview status until a reviewed signed ZIP exists.
+# Source metadata is TOML; scripts/catalog.py publishes the host JSON transport.
+schemaVersion = 1
+artwork = "assets/extensions/now-playing-preview.svg"
+artworkAlt = "Illustration of a compact Now Playing panel with a track title and a playback button."
+categories = [
+  "Developer tools",
+  "Music",
+]
+description = "A free, open-source starter for extension developers. Show the current track, control playback, and learn how to give your extension its own settings. Build it locally to explore the public extension API."
+featured = false
+icon = "assets/extensions/now-playing.svg"
+id = "com.example.boringnotch.now-playing"
+installSteps = [
+  "Open the source and follow the included README.",
+  "Build the example and run the supplied smoke test.",
+  "Launch a compatible Debug Boring Notch build with development extensions enabled.",
+  "Open Settings → Extensions to try the example. Development builds are not intended for general distribution.",
+]
+name = "Now Playing Example"
+privacy = "The example receives track title, artist, and playback state from Boring Notch. It does not use a license service or request artwork."
+requirements = [
+  "macOS 14 or later",
+  "Xcode command-line tools",
+  "A Debug Boring Notch build from the extension-host preview branch",
+]
+slug = "now-playing-example"
+sourceUrl = "https://github.com/TheBoredTeam/boring.notch/tree/e4ca1a8ba000b95cda742cf74c5c2bfa656af4fd/examples/now-playing-extension"
+status = "preview"
+statusNote = "Developer preview. Source code is available now; this is an example to build with Xcode, not a signed download for everyday use."
+supportUrl = "https://github.com/TheBoredTeam/boring.notch/issues"
+tagline = "A small beginning for your next big idea."
+version = "API v1 preview"
+websiteUrl = "https://theboring.name/extensions/?extension=now-playing-example"
+
+[developer]
+name = "TheBoredTeam"
+url = "https://github.com/TheBoredTeam"
+
+[[features]]
+description = "A complete example with a settings view, media updates, and a playback command."
+title = "Start with something working"
+
+[[features]]
+description = "Use the documented C API to create your own free or paid extension. Each developer manages their own distribution and access."
+title = "Make it your own"
+
+[price]
+amount = 0
+billing = "free"
+currency = "USD"

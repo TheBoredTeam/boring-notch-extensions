@@ -1,24 +1,21 @@
-# Validates every change to extensions/*.toml.
-#
-# This is the gate a Homebrew-style registry needs: an update PR (whether from
-# the release bot or a human) can only merge if the record parses, the release
-# asset really exists at the recorded URL, and the recorded sha256 matches the
-# asset's actual hash. That last check is what makes a re-pointed version
-# detectable — the hash is frozen into the catalog at merge time.
-#
-# The release-update automation lives in update-extensions.yml; it files PRs
-# that this workflow then guards.
+# Keep the original pack release gate while routing native records through
+# their own schema. Native previews do not have downloadable release artifacts.
 name: Validate catalog
 
 on:
   pull_request:
     paths:
       - "extensions/**"
+      - "scripts/**"
+      - "tests/**"
       - ".github/workflows/validate.yml"
   push:
     branches: [main]
     paths:
       - "extensions/**"
+      - "scripts/**"
+      - ".github/workflows/validate.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -28,120 +25,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Validate registry records
-        shell: python
-        run: |
-          import glob, hashlib, re, sys, urllib.request
-
-          failures = []
-
-          def fail(path, why):
-              failures.append(f"{path}: {why}")
-
-          def parse_toml(text):
-              # The registry subset: flat keys, [table], [[array-of-tables]].
-              # Mirrors the app's TOMLReader so client and CI agree on schema.
-              table, arrays = {}, {}
-              section, array = None, None
-              for n, raw in enumerate(text.splitlines(), 1):
-                  line = raw.strip()
-                  if not line or line.startswith("#"):
-                      continue
-                  if line.startswith("[["):
-                      if not line.endswith("]]"):
-                          fail(path := f"line {n}", "unterminated array-of-tables")
-                          continue
-                      key = line[2:-2]
-                      arrays.setdefault(key, []).append({})
-                      array = (key, len(arrays[key]) - 1)
-                      section = None
-                      continue
-                  if line.startswith("["):
-                      if not line.endswith("]"):
-                          fail(path := f"line {n}", "unterminated table")
-                          continue
-                      section, array = line[1:-1], None
-                      continue
-                  if "=" not in line:
-                      fail(path := f"line {n}", "expected key = value")
-                      continue
-                  key, _, rest = line.partition("=")
-                  key, value = key.strip(), rest.strip()
-                  # Strip an out-of-quote comment, then unquote. Comment
-                  # stripping must respect quotes: `sha256 = "ab…#"` and a
-                  # trailing `# note` are both legal.
-                  if value.startswith('"'):
-                      end = value.find('"', 1)
-                      if end != -1:
-                          value = value[1:end]
-                  elif "#" in value:
-                      value = value[: value.index("#")].strip()
-                  if array:
-                      arrays[array[0]][array[1]][key] = value
-                  elif section:
-                      table[f"{section}.{key}"] = value
-                  else:
-                      table[key] = value
-              return table, arrays
-
-          required_top = ["id", "name", "version", "publisher", "repository"]
-
-          for path in sorted(glob.glob("extensions/*.toml")):
-              text = open(path, encoding="utf-8").read()
-              table, arrays = parse_toml(text)
-
-              for key in required_top:
-                  if not table.get(key):
-                      fail(path, f"missing required key `{key}`")
-
-              ext_id = table.get("id", "")
-              if ext_id and not re.fullmatch(r"[a-zA-Z0-9.-]+", ext_id):
-                  fail(path, f"id `{ext_id}` is not a plausible reverse-domain id")
-
-              expected_file = path.split("/")[-1]
-              if ext_id and expected_file != f"{ext_id}.toml":
-                  fail(path, f"file must be named {ext_id}.toml")
-
-              url = table.get("release.url", "")
-              sha = table.get("release.sha256", "").strip()
-              if not url:
-                  fail(path, "missing [release] url")
-                  continue
-
-              # The release asset must exist and match its recorded hash.
-              req = urllib.request.Request(url, method="HEAD")
-              try:
-                  with urllib.request.urlopen(req, timeout=30) as resp:
-                      if resp.status != 200:
-                          fail(path, f"release url returned HTTP {resp.status}")
-                          continue
-                      size = resp.headers.get("Content-Length")
-              except Exception as e:
-                  fail(path, f"release url unreachable: {e}")
-                  continue
-
-              if sha:
-                  if not re.fullmatch(r"[0-9a-fA-F]{64}", sha):
-                      fail(path, "release.sha256 is not a 64-char hex digest")
-                  else:
-                      with urllib.request.urlopen(url, timeout=120) as resp:
-                          actual = hashlib.sha256(resp.read()).hexdigest()
-                      if actual != sha.lower():
-                          fail(path, f"sha256 mismatch: recorded {sha}, asset is {actual}")
-
-              exts = arrays.get("extensions", [])
-              if not exts:
-                  fail(path, "no [[extensions]] tables; a pack must declare at least one extension")
-              for i, ext in enumerate(exts):
-                  if not ext.get("bundleID"):
-                      fail(path, f"[[extensions]] #{i + 1} missing bundleID")
-                  if not ext.get("scenes"):
-                      fail(path, f"[[extensions]] #{i + 1} missing scenes")
-
-          if failures:
-              print("::error::catalog validation failed")
-              for f in failures:
-                  print(f"  - {f}")
-              sys.exit(1)
-          print(f"validated OK")
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate native metadata and legacy release assets
+        run: python3 scripts/validate_registry.py --check-legacy-artifacts
