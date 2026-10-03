@@ -1,15 +1,15 @@
 # Registry record for the Task Deck extension pack.
 id = "com.personalteam.TaskDeck"
 name = "Task Deck"
-version = "1.0.9"
+version = "1.0.10"
 description = "Live workload visualisation, right where you need it."
 publisher = "TheBoredTeam"
 repository = "https://github.com/TheBoredTeam/boring-notch-extensions"
 license = "MIT"
 
 [release]
-url = "https://github.com/TheBoredTeam/boring-notch-extensions/releases/download/packs-v1.0.9/TaskDeck.zip"
-sha256 = "495cdef7f5bbff251dce919b11eacaf9f0b1ae9f2a05824001695e24e7b9e89f"   # frozen at merge time by CI
+url = "https://github.com/TheBoredTeam/boring-notch-extensions/releases/download/packs-v1.0.10/TaskDeck.zip"
+sha256 = "e7979e49a6db9c16c33a8f874e6f8f907d77194a3d5a696667f0eb2ad13dd45c"   # frozen at merge time by CI
 
 [update]
 strategy = "github-release"
