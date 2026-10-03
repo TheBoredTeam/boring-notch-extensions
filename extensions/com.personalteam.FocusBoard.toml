@@ -4,19 +4,19 @@
 # updated thereafter by automation (see .github/workflows).
 id = "com.personalteam.FocusBoard"
 name = "Focus Board"
-version = "1.0.10"
+version = "1.0.11"
 description = "A small session board for deep work, living in the notch."
 publisher = "TheBoredTeam"
 repository = "https://github.com/TheBoredTeam/boring-notch-extensions"
 license = "MIT"
 
 [release]
-url = "https://github.com/TheBoredTeam/boring-notch-extensions/releases/download/packs-v1.0.10/FocusBoard.zip"
-sha256 = "0e8c452fe0bac85fbfe6f6dd7ff9255522b30d0a354f2a73bac56b68793db197"   # frozen at merge time by CI
+url = "https://github.com/TheBoredTeam/boring-notch-extensions/releases/download/packs-v1.0.11/FocusBoard.zip"
+sha256 = "f6f86808f1b7d22a5ae18a06fbebad124b7f629b5c85c9387a1af58de5c6e1b1"   # frozen at merge time by CI
 
 [update]
 strategy = "github-release"
 
 [[extensions]]
 bundleID = "com.personalteam.FocusBoard.ExampleExtension"
-scenes = ["notch-tab"]
+scenes = ["com.personalteam.FocusBoard.ExampleExtension"]
