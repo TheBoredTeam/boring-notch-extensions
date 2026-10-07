@@ -1,0 +1,32 @@
+name: Update extensions
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+  repository_dispatch:
+    types: [publisher-release]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: extension-release-updates
+  cancel-in-progress: false
+
+jobs:
+  discover-releases:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Reconcile registered publisher releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: python3 scripts/update_extensions.py
