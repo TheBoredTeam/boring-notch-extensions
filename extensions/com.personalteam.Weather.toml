@@ -1,6 +1,6 @@
 id = "com.personalteam.Weather"
 name = "Weather"
-version = "0.1.0"
+version = "1.0.0"
 description = "A native Boring Notch weather extension with shared settings and a tab surface."
 publisher = "The Boring Team"
 developerID = "the-boring-team"
@@ -8,8 +8,8 @@ repository = "https://github.com/Alexander5015/boring-notch-weather"
 license = "MIT"
 
 [release]
-url = "https://github.com/Alexander5015/boring-notch-weather/releases/download/v0.1.0/Weather.zip"
-sha256 = "276aad3673f0b298a27a55aa9f322b9a0fc948da89a5ed73467bf986813dbad7"
+url = "https://github.com/Alexander5015/boring-notch-weather/releases/download/v1.0.0/Weather.zip"
+sha256 = "ee0eac4c8387b2da2b6bc2c42c471d1009226772320c44ef6f081fd8d3c2f884"
 
 [update]
 strategy = "github-release"
